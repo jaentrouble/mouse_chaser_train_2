@@ -60,6 +60,38 @@ class RPN(keras.Model):
             1,
         )
 
+    def iou(self, bbox1, bbox2):
+        """iou
+        Calculate iou
+
+        Parameters
+        ----------
+        bbox1, bbox2: tf.Tensor
+            Any shape, but the last dimension should be 4 i.e. [...,4]
+        """
+        # To prevent division by zero
+        gamma_w = 1/self.width
+        gamma_h = 1/self.height
+        # x2,y2 must be bigger than x1,y1 all the time.
+        # Do not add tf.abs because it may hide the problem
+        S1 = tf.reduce_prod(
+            bbox1[...,2:]-bbox1[...,0:2]+tf.constant([gamma_w,gamma_h]),
+            axis=-1,
+        )
+        S2 = tf.reduce_prod(
+            bbox2[...,2:]-bbox2[...,0:2]+tf.constant([gamma_w,gamma_h]),,
+            axis=-1,
+        )
+        
+        xA = tf.maximum(bbox1[...,0],bbox2[...,0])
+        yA = tf.maximum(bbox1[...,1],bbox2[...,1])
+        xB = tf.minimum(bbox1[...,2],bbox2[...,2])
+        yB = tf.minimum(bbox1[...,3],bbox2[...,3])
+
+        inter = tf.maximum((xB-xA+gamma_w),0) * tf.maximum((yB-yA+gamma_h),0)
+        iou = inter/(S1 + S2 - inter)
+        return iou
+
     
     def generate_anchors_pre(self, height, width):
         x = tf.range(width, delta=1/width)
