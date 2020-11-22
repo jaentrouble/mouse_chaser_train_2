@@ -33,9 +33,11 @@ class ChaserModel(keras.Model):
         """
         Arguments
         ---------
-            inputs : keras.Input
-            backbone_f : function used universally across multiple outputs
-            specific_fs : dict {'name' : model_function}
+        inputs: keras.Input
+
+        backbone_f: function used universally across multiple outputs
+        
+        specific_fs: dict {'name' : model_function}
         """
         super().__init__()
         backbone_out = backbone_f(inputs)
