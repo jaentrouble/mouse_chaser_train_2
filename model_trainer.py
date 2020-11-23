@@ -458,7 +458,13 @@ def run_training(
 
 if __name__ == '__main__':
     import numpy as np
-
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        try:
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError as e:
+            print(e)
     backbone_inputs = keras.Input((240,320,3))
     backbone_outputs = backbone_models.hr_5_3_8(backbone_inputs)
     backbone_model = keras.Model(inputs=backbone_inputs,
@@ -470,12 +476,13 @@ if __name__ == '__main__':
         8,
         (320,240),
     )
-    image = np.random.random((1,240,320,3))
+    image = np.random.random((100,240,320,3))
     gt_boxes = np.array([[
         [0.1,0.1,0.3,0.3],
         [0.4,0.4,0.8,0.8],
         [0.2,0.3,0.4,0.5],
     ]])
-    classes = np.ones((1,3))
+    gt_boxes = np.ones((100,1,1)) * gt_boxes
+    classes = np.ones((100,3))
     mymodel.compile(optimizer='adam')
-    mymodel.fit((image,gt_boxes,classes))
+    mymodel.fit((image,gt_boxes,classes),steps_per_epoch=20,batch_size=5)

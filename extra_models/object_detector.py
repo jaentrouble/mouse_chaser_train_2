@@ -4,6 +4,9 @@ from tensorflow.keras import layers
 from tensorflow.keras import mixed_precision
 from extra_models import backbone_models
 
+# TODO: debugging
+import sys
+
 RPN_TRAIN_THRES = 0.5
 BATCH_SIZE = 128
 POSITIVE_RATIO = 0.5
@@ -103,6 +106,7 @@ class ObjectDetector(keras.Model):
         """
         # Data comes in ((image, gt_boxes, classes),)
         image, gt_boxes, classes = data[0]
+        gt_boxes = gt_boxes[0]
 
         with tf.GradientTape() as tape:
             features = self.backbone_layers(image, training=True)
@@ -191,12 +195,12 @@ class ObjectDetector(keras.Model):
         sigma_2 = sigma**2
         box_diff = bbox_pred - bbox_targets
         masked_box_diff = bbox_pred * bbox_mask
-        abs_box_diff = tf.abs(masked_box_dif)
+        abs_box_diff = tf.abs(masked_box_diff)
         smooth_sign = tf.cast(abs_box_diff<(1/sigma_2),tf.float32)
         box_loss = (abs_box_diff**2)*(sigma_2/2)*smooth_sign \
                    + (abs_box_diff - (0.5/sigma_2))*(1-smooth_sign)
         box_loss = tf.reduce_sum(box_loss) / tf.reduce_sum(bbox_mask)
-        return box_los
+        return box_loss
 
 
 
@@ -217,21 +221,26 @@ class ObjectDetector(keras.Model):
         # To prevent division by zero
         gamma_w = 1/self.image_size[0]
         gamma_h = 1/self.image_size[1]
+        print(f'bbox1 shape: {bbox1.shape}')
+        print(f'bbox2 shape: {bbox2.shape}')
         # x2,y2 must be bigger than x1,y1 all the time.
         # Do not add tf.abs because it may hide the problem
         S1 = tf.reduce_prod(
             bbox1[...,2:]-bbox1[...,0:2]+tf.constant([gamma_w,gamma_h]),
             axis=-1,
         )
+        print(f'S1shape : {S1.shape}')
         S2 = tf.reduce_prod(
             bbox2[...,2:]-bbox2[...,0:2]+tf.constant([gamma_w,gamma_h]),
             axis=-1,
         )
         
         xA = tf.maximum(bbox1[...,0],bbox2[...,0])
+        print(bbox2[...,0].shape)
         yA = tf.maximum(bbox1[...,1],bbox2[...,1])
         xB = tf.minimum(bbox1[...,2],bbox2[...,2])
         yB = tf.minimum(bbox1[...,3],bbox2[...,3])
+        print(f'xA shape:{xA.shape}')
 
         inter = tf.maximum((xB-xA+gamma_w),0) * tf.maximum((yB-yA+gamma_h),0)
         iou = inter/(S1 + S2 - inter)
@@ -242,17 +251,19 @@ class ObjectDetector(keras.Model):
         Only keep anchors inside the image
         """
         # Shape: (num_inside,3), 3 for (h,w,9)
-        idx_inside = tf.where(
-            (anchors[...,0] >= 0) &
-            (anchors[...,1] >= 0) &
-            (anchors[...,2] < 1) &
-            (anchors[...,3] < 1)
-        )
+        mask_inside = \
+            (anchors[...,0] >= 0.0) &\
+            (anchors[...,1] >= 0.0) &\
+            (anchors[...,2] < 1.0) &\
+            (anchors[...,3] < 1.0)
+        idx_inside = tf.where(mask_inside)
         # Shape: (num_inside,4)
         inside_anchors = tf.gather_nd(
             anchors,
             idx_inside
         )
+        print('-----here----')
+        print(inside_anchors.shape)
         return idx_inside, inside_anchors
     
     def generate_anchors_pre(self, height, width):
@@ -312,17 +323,21 @@ class ObjectDetector(keras.Model):
         f_height, f_width: int
             final feature shape
         """
-        num_inside = inside_anchors.shape[0]
+        num_inside = tf.shape(inside_anchors)[0]
         # Shape: (num_inside,)
-        labels = tf.zeros((num_inside,))
+        labels = tf.fill([num_inside,],0.0)
         # Shape: (num_inside, 1, 4)
         i_anch_exp = tf.expand_dims(inside_anchors,1)
+        print(i_anch_exp)
         # Shape: (1, k, 4)
         gt_boxes_exp = tf.expand_dims(gt_boxes,0)
+        print(gt_boxes)
         # Shape: (num_inside, k)
         iou = self.iou(i_anch_exp, gt_boxes_exp)
+        print(f'iou shape {iou.shape}')
         # Shape: (num_inside,)
         argmax_iou = tf.argmax(iou, axis=1)
+        print(f'argmax_ioushape {argmax_iou.shape}')
         max_iou = tf.reduce_max(iou, axis=1)
 
         # Shape: (k,)
@@ -344,7 +359,7 @@ class ObjectDetector(keras.Model):
         )
         
         # Subsample positive if too many
-        max_p_num = tf.cast(POSITIVE_RATIO*BATCH_SIZE,tf.int64)
+        max_p_num = tf.cast(POSITIVE_RATIO*BATCH_SIZE,tf.int32)
         p_idx = tf.where(labels==1)
         p_num = tf.shape(p_idx)[0]
         mixed_p_idx = tf.random.shuffle(p_idx)
@@ -360,7 +375,7 @@ class ObjectDetector(keras.Model):
         )
 
         # Subsample negative if too many
-        max_n_num = BATCH_SIZE - tf.reduce_sum(tf.cast(labels==1,tf.float32))
+        max_n_num = BATCH_SIZE - tf.reduce_sum(tf.cast(labels==1,tf.int32))
         n_idx = tf.where(labels == 0)
         n_num = tf.shape(n_idx)[0]
         mixed_n_idx = tf.random.shuffle(n_idx)
