@@ -17,41 +17,6 @@ import pickle
 from extra_models.object_detector import ObjectDetector
 from extra_models import backbone_models
 
-class ChaserModel(keras.Model):
-    """ChaserModel
-    Gets an image and returns a heatmap
-
-    Input
-    -----
-    input : tf.Tensor
-        image tensor. Expects it to be tf.uint8 i.e. raw image
-    
-    Output
-    ------
-    heatmaps : dict of heatmaps
-        {'name' : tf.Tensor}
-    """
-    def __init__(self, inputs, backbone_f, specific_fs):
-        """
-        Arguments
-        ---------
-        inputs: keras.Input
-
-        backbone_f: function used universally across multiple outputs
-        
-        specific_fs: dict {'name' : model_function}
-        """
-        super().__init__()
-        backbone_out = backbone_f(inputs)
-        outputs = {}
-        for out_name, sf in specific_fs.items():
-            outputs[out_name]=(sf(backbone_out, out_name))
-        self.heatmaps = keras.Model(inputs=inputs, outputs=outputs)
-        self.heatmaps.summary()
-        
-    def call(self, inputs, training=None):
-        casted = tf.cast(inputs, tf.float32) / 255.0
-        return self.heatmaps(inputs, training=training)
 
 class AugGenerator():
     """An iterable generator that makes augmented mouserec data
