@@ -17,6 +17,11 @@ import pickle
 from extra_models.object_detector import ObjectDetector
 from extra_models import backbone_models
 
+# Min 100px, +- 30 px
+# Minimum size of any side of a mouse bbox
+MOUSE_MIN = 100
+# Margin from nose/tail
+MOUSE_MARGIN = 30
 
 class AugGenerator():
     """An iterable generator that makes augmented mouserec data
@@ -24,27 +29,44 @@ class AugGenerator():
     NOTE: 
         Every img is reshaped to img_size
 
-    return
-    ------
-    X : np.array, dtype= np.uint8
+    Returns
+    -------
+    image : np.array, dtype= np.float32
+        Normalized to [0,1]
         shape : (HEIGHT, WIDTH, 3)
-        color : RGB
-    Y : dictionary of heatmaps
-        {'name' : (HEIGHT, WIDTH, 1)}
+        color order : RGB
+    gt_boxes: np.array, dtype= np.float32
+        Normalized to [0,1]
+        shape : (k, 4) where k is number of boxes
+    gt_classes: np.array, dtype= np.int32
+        Class index for gt_boxes
+        Mouse is always labeled 0
+        Classes will be labeled from 1 and in order of class_names
+        Shape : (k, )
+
     """
-    def __init__(self, data_dir, class_labels, img_size):
-        """ 
-        arguments
+    def __init__(self, data_dir, img_size, class_names=None, bbox_sizes=None):
+        """
+        Arguments
         ---------
         data_dir : str
             path to the data directory (which has pickled files)
-        class_labels : list of str
-            list of classes to extract data
         img_size : tuple
             Desired output image size
-            IMPORTANT : (HEIGHT, WIDTH)
+            IMPORTANT : (WIDTH, HEIGHT)
+        class_names : list
+            list of classes to extract data other than mouse
+        bbox_sizes : list
+            Will draw a box which is centered at the class's point,
+            as the size defined.
+            The order of class names and bbox_sizes should match.
+            [(half_width, half_height)]
+            i.e. x_min = ctr_x - half_width
         """
-        self.class_labels = class_labels
+        self.class_names = ['mouse']
+        if not(class_names is None):
+            self.class_names.extend(class_names)
+        self.bbox_sizes = bbox_sizes
         self.img_size = img_size
         self.data_dir = Path(data_dir)
         self.raw_data = []
@@ -70,8 +92,9 @@ class AugGenerator():
             A.Resize(img_size[0], img_size[1]),
             # A.Cutout(8,img_size[0]//12,img_size[1]//12)
         ],
-        # Unify all points order to 'ij' format i.e. 'yx' format
-        keypoint_params=A.KeypointParams(format='yx',label_fields=['class_labels'])
+        # (x1, y1, x2, y2) format, all normalized
+        bbox_params=A.BboxParams(format='albumentations', 
+                            label_fields=['bbox_labels']),
         )
 
     def __iter__(self):
@@ -84,123 +107,126 @@ class AugGenerator():
         idx = random.randrange(0,self.n)
         datum = self.raw_data[idx]
         
+        # swap to shape (h,w,3)
         image = datum['image'].swapaxes(0,1)
-        keypoints = []
-        for cname in self.class_labels:
-            keypoints.append((datum[cname][1],datum[cname][0]))
-                
+        bboxes = []
+        bbox_labels = []
+        height, width = image.shape[:2]
+
+        # Mouse box
+        nose_x, nose_y = datum['nose']
+        tail_x, tail_y = datum['tail']
+        x_ctr = (nose_x + tail_x)/2
+        y_ctr = (nose_y + tail_y)/2
+        m_width = np.max([np.abs(nose_x-tail_x)+MOUSE_MARGIN*2, MOUSE_MIN])
+        m_height = np.max([np.abs(nose_y-tail_y)+MOUSE_MARGIN*2, MOUSE_MIN])
+        x_min = (x_ctr - m_width/2) / width
+        x_max = (x_ctr + m_width/2) / width
+        y_min = (y_ctr - m_height/2) / height
+        y_max = (y_ctr + m_height/2) / height
+        bboxes.append([x_min,y_min,x_max,y_max])
+        bbox_labels.append('mouse')
+
+        if len(self.class_names)>1:
+            for cname, half_size in zip(self.class_names[1:], self.bbox_sizes):
+                if (len(np.shape(datum[cname])) == 1) and \
+                    len(datum[cname])>0:
+                    # Only one point
+                    ctr_x, ctr_y = datum[cname]
+                    h_width, h_height = half_size
+                    x_min = (ctr_x - h_width)/width
+                    x_max = (ctr_x + h_width)/width
+                    y_min = (ctr_y - h_height)/height
+                    y_max = (ctr_y + h_height)/height
+                    bboxes.append([x_min,y_min,x_max,y_max])
+                    bbox_labels.append(cname)
+                elif len(datum[cname])>=1:
+                    # Multiple points
+                    for ctr_x, ctr_y in datum[cname]:
+                        h_width, h_height = half_size
+                        x_min = (ctr_x - h_width)/width
+                        x_max = (ctr_x + h_width)/width
+                        y_min = (ctr_y - h_height)/height
+                        y_max = (ctr_y + h_height)/height
+                        bboxes.append([x_min,y_min,x_max,y_max])
+                        bbox_labels.append(cname)
+                    
+        
+        bboxes = np.clip(bboxes, 0, 1)
+
         distorted = self.aug(
             image=image,
-            keypoints=keypoints,
-            class_labels=self.class_labels,
+            bboxes=bboxes,
+            bbox_labels=bbox_labels,
         )
-        distorted_keypoints = distorted['keypoints']
-        distorted_class_labels = distorted['class_labels']
-        heatmaps = {}
-        for cname in self.class_labels:
-            if cname in distorted_class_labels:
-                r, c = distorted_keypoints[distorted_class_labels.index(cname)]
-                heatmaps[cname] = self.gaussian_heatmap(r,c,self.img_size)
-            else:
-                heatmaps[cname] = np.zeros(self.img_size,dtype=np.float32)
+        t_box = np.array(distorted['bboxes'], dtype=np.float32)
+        t_labels = np.array([
+            self.class_names.index(cname) for cname in distorted['bbox_labels']
+        ])
+        t_image = (distorted['image']/255).astype(np.float32)
 
+        # Just in case there's no box left, retry
+        if len(t_box) < 1:
+            return self.__next__()
 
-        return distorted['image'], heatmaps
+        return image, t_box, t_labels
 
-    def gaussian_heatmap(self, r, c, shape, sigma=10):
-        """
-        Returns a heat map of a point
-        Shape is expected to be (HEIGHT, WIDTH)
-        [r,c] should be the point i.e. opposite of pygame notation.
-
-        Parameters
-        ----------
-        r : int
-            row of the point
-        c : int
-            column of the point
-        shape : tuple of int
-            (HEIGHT, WIDTH)
-
-        Returns
-        -------
-        heatmap : np.array
-            shape : (HEIGHT, WIDTH)
-        """
-        coordinates = np.stack(np.meshgrid(
-            np.arange(shape[0],dtype=np.float32),
-            np.arange(shape[1],dtype=np.float32),
-            indexing='ij',
-        ), axis=-1)
-        keypoint = np.array([r,c]).reshape((1,1,2))
-        heatmap = np.exp(-(np.sum((coordinates-keypoint)**2,axis=-1))/(2*sigma**2))
-
-        return heatmap
 
 class ValGenerator(AugGenerator):
     """Same as AugGenerator, but without augmentation.
+
     Only resizes the image
     """
-    def __init__(self, data_dir, class_labels, img_size):
-        """ 
-        arguments
-        ---------
-        data_dir : str
-            path to the data directory (which has pickled files)
-        class_labels : list of str
-            list of classes to extract data
-        img_size : tuple
-            Desired output image size
-            IMPORTANT : (HEIGHT, WIDTH)
-        """
-        super().__init__(data_dir, class_labels, img_size)
+    def __init__(self, data_dir, img_size, class_names=None, bbox_sizes=None):
+        super().__init__(data_dir, img_size, class_names, bbox_sizes)
         self.aug = A.Compose([
             A.Resize(img_size[0], img_size[1]),
         ],
-        # Unify all points order to 'ij' format i.e. 'yx' format
-        keypoint_params=A.KeypointParams(format='yx',label_fields=['class_labels'])
+        # (x1, y1, x2, y2) format, all normalized
+        bbox_params=A.BboxParams(format='albumentations', 
+                            label_fields=['bbox_labels']),
         )
 
 def create_train_dataset(
         data_dir, 
-        class_labels, 
         img_size, 
-        batch_size, 
+        class_names=None,
+        bbox_sizes=None,
         buffer_size=1000,
         val_data=False):
     """
-    Note: img_size = (HEIGHT,WIDTH)
+    Note: img_size = (WIDTH,HEIGHT)
+    Batch size is fixed to 1, because object detector model
+    only takes one image per step
     """
     autotune = tf.data.experimental.AUTOTUNE
     if val_data:
         generator = ValGenerator(
             data_dir,
-            class_labels,
             img_size,
+            class_names,
+            bbox_sizes
         )
     else:
         generator = AugGenerator(
             data_dir,
-            class_labels,
             img_size,
+            class_names,
+            bbox_sizes
         )
-    output_dict = {}
-    output_types = {}
-    for cname in class_labels:
-        output_dict[cname] = tf.TensorShape([img_size[0],img_size[1]])
-        output_types[cname] = tf.float32
     
 
     dataset = tf.data.Dataset.from_generator(
         generator,
-        output_types=(tf.uint8, output_types),
+        output_types=(tf.float32, tf.float32, tf.float32),
         output_shapes=(
-            tf.TensorShape([img_size[0],img_size[1],3]), 
-            output_dict,
+            tf.TensorShape([img_size[1],img_size[0],3]), 
+            tf.TensorShape([None, 4]),
+            tf.TensorShape([None,])
         ),
     )
     dataset = dataset.shuffle(buffer_size)
-    dataset = dataset.batch(batch_size, drop_remainder=True)
+    dataset = dataset.batch(1)
     dataset = dataset.prefetch(autotune)
     dataset = dataset.repeat()
 
@@ -272,42 +298,6 @@ class ValFigCallback(keras.callbacks.Callback):
         with self.filewriter.as_default():
             tf.summary.image('val prediction', image, step=epoch)
 
-class MaxPointDistL2(keras.metrics.Metric):
-    """MaxPointDistL2
-    
-    Pick a max value point from y_pred and y_true each, and calculate
-    L2 distance between two points.
-    
-    """
-    def __init__(self, name='max_point_distance', **kwargs):
-        super().__init__(name=name,**kwargs)
-        self.total = self.add_weight(name='mpd', initializer='zeros')
-        self.count = self.add_weight(name='count', initializer='zeros')
-
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        true_max_pos = tf.cast(tf.unravel_index(tf.math.argmax(
-            tf.reshape(y_true,(y_true.shape[0],-1)),
-            axis=1
-        ), y_true.shape[1:]),tf.float32)
-        pred_max_pos = tf.cast(tf.unravel_index(tf.math.argmax(
-            tf.reshape(y_pred,(y_pred.shape[0],-1)),
-            axis=1
-        ), y_pred.shape[1:]),tf.float32)
-        l2_dist = tf.math.sqrt(tf.math.reduce_sum(tf.math.squared_difference(
-            true_max_pos, pred_max_pos),axis=0))
-        if sample_weight is not None:
-            sample_weight = tf.cast(sample_weight, tf.float32)
-            l2_dist = tf.multiply(l2_dist, sample_weight)
-        self.total.assign_add(tf.reduce_mean(l2_dist))
-        self.count.assign_add(1.0)
-
-    def result(self):
-        return self.total / self.count
-
-    def reset_states(self):
-        self.total.assign(0.0)
-        self.count.assign(0.0)
-    
 
 def run_training(
         backbone_f,
@@ -422,7 +412,6 @@ def run_training(
 
 
 if __name__ == '__main__':
-    import numpy as np
     gpus = tf.config.experimental.list_physical_devices('GPU')
     if gpus:
         try:
@@ -435,16 +424,15 @@ if __name__ == '__main__':
         256,
         16,
         8,
-        (320,240),
+        (640,480),
         3,
     )
-    image = np.random.random((100,240,320,3))
-    gt_boxes = np.array([[
-        [0.1,0.1,0.3,0.3],
-        [0.4,0.4,0.8,0.8],
-        [0.2,0.3,0.4,0.5],
-    ]])
-    gt_boxes = np.ones((100,1,1)) * gt_boxes
-    classes = np.ones((100,3))
     mymodel.compile(optimizer='adam')
-    mymodel.fit((image,gt_boxes,classes),steps_per_epoch=100,batch_size=1)
+
+    ds = create_train_dataset(
+        'data',
+        (640,480),
+        ['food'],
+        [(20,20)],
+    )
+    mymodel.fit(ds,steps_per_epoch=100,)

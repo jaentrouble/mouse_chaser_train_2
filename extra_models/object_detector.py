@@ -131,9 +131,10 @@ class ObjectDetector(keras.Model):
             classes:
                 Ground truth classes of gt_boxes, in the same order
         """
-        # Data comes in ((image, gt_boxes, classes),)
-        image, gt_boxes, classes = data[0]
+        print(data)
+        image, gt_boxes, classes = data
         gt_boxes = gt_boxes[0]
+        classes = classes[0]
 
         with tf.GradientTape() as tape:
             features = self.backbone_model(image, training=True)
