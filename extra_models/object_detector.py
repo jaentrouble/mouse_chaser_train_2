@@ -4,8 +4,6 @@ from tensorflow.keras import layers
 from tensorflow.keras import mixed_precision
 from extra_models import backbone_models
 
-# TODO: debugging
-import sys
 
 RPN_TRAIN_THRES = 0.5
 BATCH_SIZE = 128
@@ -28,7 +26,7 @@ class ObjectDetector(keras.Model):
     """
     def __init__(
         self, 
-        backbone_layers,
+        backbone_f,
         intermediate_filters,
         kernel_size,
         stride,
@@ -39,8 +37,8 @@ class ObjectDetector(keras.Model):
         """
         Arguments
         ---------
-        backbone_layers: keras.Model
-            A model that takes images and retuns features
+        backbone_f: str
+            A function to build a backbone model
         intermediate_filters: int
             filter number of the first conv layer
         kernel_size: int
@@ -55,7 +53,7 @@ class ObjectDetector(keras.Model):
             list of anchor sizes
         """
         super().__init__()
-        self.backbone_layers = backbone_layers
+        self.backbone_f = backbone_f
         self.intermediate_filters = intermediate_filters
         self.kernel_size = kernel_size
         self.stride = stride
@@ -64,11 +62,23 @@ class ObjectDetector(keras.Model):
         self.anchor_scales = anchor_scales
         self.loss_tracker = keras.metrics.Mean(name='loss')
 
+        image_w, image_h = image_size
+        backbone_inputs = keras.Input((image_h,image_w,3))
+        backbone_outputs = getattr(backbone_models,backbone_f)(backbone_inputs)
+        self.backbone_model = keras.Model(inputs=backbone_inputs,
+                                        outputs=backbone_outputs)
+
         self.inter_conv = layers.Conv2D(
             self.intermediate_filters,
             self.kernel_size,
             strides=self.stride,
         )
+
+        self.f_height, self.f_width = \
+            self.inter_conv(backbone_outputs).shape[1:3]
+        self._all_anchors = self.generate_anchors_pre(self.f_height, self.f_width)
+        self._idx_inside, self._inside_anchors = \
+            self.get_inside_anchors(self._all_anchors)
         
         self.anchor_set_num = len(self.anchor_ratios)*len(self.anchor_scales)
 
@@ -84,7 +94,7 @@ class ObjectDetector(keras.Model):
         
 
     def call(self, inputs, training=None):
-        features = self.backbone_layers(inputs)
+        features = self.backbone_model(inputs)
         
         feature_map = self.inter_conv(inputs)
 
@@ -109,20 +119,19 @@ class ObjectDetector(keras.Model):
         gt_boxes = gt_boxes[0]
 
         with tf.GradientTape() as tape:
-            features = self.backbone_layers(image, training=True)
+            features = self.backbone_model(image, training=True)
             # Shape: (N,H,W,C)
             feature_map = self.inter_conv(features)
 
             # Shape: (h,w,9,4)
-            f_height = feature_map.shape[1]
-            f_width = feature_map.shape[2]
-            all_anchors = self.generate_anchors_pre(f_height,f_width)
-            # Shape: (num_inside,3), (num_inside,4)
-            idx_inside, inside_anchors = \
-                self.get_inside_anchors(all_anchors)
+            # f_height = feature_map.shape[1]
+            # f_width = feature_map.shape[2]
+            # all_anchors = self.generate_anchors_pre(f_height,f_width)
+            # # Shape: (num_inside,3), (num_inside,4)
+            # idx_inside, inside_anchors = \
+            #     self.get_inside_anchors(all_anchors)
             rpn_labels, rpn_bbox_targets, rpn_bbox_mask = \
-                self.anchor_target(idx_inside, inside_anchors, gt_boxes,
-                                f_height, f_width)
+                self.anchor_target(gt_boxes)
             # Shape: (num_not_-1, 4), 4 for (1, height, width, 9)
             rpn_select = tf.where(tf.not_equal(
                 rpn_labels,
@@ -221,26 +230,21 @@ class ObjectDetector(keras.Model):
         # To prevent division by zero
         gamma_w = 1/self.image_size[0]
         gamma_h = 1/self.image_size[1]
-        print(f'bbox1 shape: {bbox1.shape}')
-        print(f'bbox2 shape: {bbox2.shape}')
         # x2,y2 must be bigger than x1,y1 all the time.
         # Do not add tf.abs because it may hide the problem
         S1 = tf.reduce_prod(
             bbox1[...,2:]-bbox1[...,0:2]+tf.constant([gamma_w,gamma_h]),
             axis=-1,
         )
-        print(f'S1shape : {S1.shape}')
         S2 = tf.reduce_prod(
             bbox2[...,2:]-bbox2[...,0:2]+tf.constant([gamma_w,gamma_h]),
             axis=-1,
         )
         
         xA = tf.maximum(bbox1[...,0],bbox2[...,0])
-        print(bbox2[...,0].shape)
         yA = tf.maximum(bbox1[...,1],bbox2[...,1])
         xB = tf.minimum(bbox1[...,2],bbox2[...,2])
         yB = tf.minimum(bbox1[...,3],bbox2[...,3])
-        print(f'xA shape:{xA.shape}')
 
         inter = tf.maximum((xB-xA+gamma_w),0) * tf.maximum((yB-yA+gamma_h),0)
         iou = inter/(S1 + S2 - inter)
@@ -250,20 +254,16 @@ class ObjectDetector(keras.Model):
         """
         Only keep anchors inside the image
         """
-        # Shape: (num_inside,3), 3 for (h,w,9)
         mask_inside = \
             (anchors[...,0] >= 0.0) &\
             (anchors[...,1] >= 0.0) &\
             (anchors[...,2] < 1.0) &\
             (anchors[...,3] < 1.0)
         idx_inside = tf.where(mask_inside)
-        # Shape: (num_inside,4)
         inside_anchors = tf.gather_nd(
             anchors,
             idx_inside
         )
-        print('-----here----')
-        print(inside_anchors.shape)
         return idx_inside, inside_anchors
     
     def generate_anchors_pre(self, height, width):
@@ -302,42 +302,27 @@ class ObjectDetector(keras.Model):
 
     def anchor_target(
         self, 
-        idx_inside, 
-        inside_anchors, 
         gt_boxes,
-        f_height,
-        f_width,
     ):
         """Anchor_target
         Create target data
 
         Parameters
         ----------
-        idx_inside:
-            Shape: (num_inside,3), 3 for (H,W,9)
-            Indices of anchors that are completely inside the image
-        inside_anchors:
-            Shape: (num_inside,4)
         gt_boxes:
             Shape: (k, 4)
-        f_height, f_width: int
-            final feature shape
         """
-        num_inside = tf.shape(inside_anchors)[0]
+        num_inside = tf.shape(self._inside_anchors)[0]
         # Shape: (num_inside,)
         labels = tf.fill([num_inside,],0.0)
         # Shape: (num_inside, 1, 4)
-        i_anch_exp = tf.expand_dims(inside_anchors,1)
-        print(i_anch_exp)
+        i_anch_exp = tf.expand_dims(self._inside_anchors,1)
         # Shape: (1, k, 4)
         gt_boxes_exp = tf.expand_dims(gt_boxes,0)
-        print(gt_boxes)
         # Shape: (num_inside, k)
         iou = self.iou(i_anch_exp, gt_boxes_exp)
-        print(f'iou shape {iou.shape}')
         # Shape: (num_inside,)
         argmax_iou = tf.argmax(iou, axis=1)
-        print(f'argmax_ioushape {argmax_iou.shape}')
         max_iou = tf.reduce_max(iou, axis=1)
 
         # Shape: (k,)
@@ -396,7 +381,7 @@ class ObjectDetector(keras.Model):
         )
         # Shape: (num_inside, 4)
         bbox_targets = self.bbox_delta_transform(
-            inside_anchors, gt_gathered)
+            self._inside_anchors, gt_gathered)
         
         # Only the positive ones have regression targets
         p_idx = tf.where(labels==1)
@@ -410,8 +395,8 @@ class ObjectDetector(keras.Model):
 
         # Shape: (height, width, 9)
         rpn_labels = tf.tensor_scatter_nd_update(
-            tf.fill([f_height, f_width, self.anchor_set_num], -1.0),
-            idx_inside,
+            tf.fill([self.f_height, self.f_width, self.anchor_set_num], -1.0),
+            self._idx_inside,
             labels,
         )
         # Shape: (1, height, width, 9)
@@ -419,12 +404,12 @@ class ObjectDetector(keras.Model):
 
         rpn_bbox_targets = tf.tensor_scatter_nd_update(
             tf.zeros([
-                f_height,
-                f_width,
+                self.f_height,
+                self.f_width,
                 self.anchor_set_num,
                 4,
             ]),
-            idx_inside,
+            self._idx_inside,
             bbox_targets,
         )
         # Shape: (1, height, width, 9, 4)
@@ -432,12 +417,12 @@ class ObjectDetector(keras.Model):
 
         rpn_bbox_mask = tf.tensor_scatter_nd_update(
             tf.zeros([
-                f_height,
-                f_width,
+                self.f_height,
+                self.f_width,
                 self.anchor_set_num,
                 1,
             ]),
-            idx_inside,
+            self._idx_inside,
             bbox_mask,
         )
         # Shape: (1, height, width, 9, 1)
@@ -493,7 +478,7 @@ class ObjectDetector(keras.Model):
         config['kernel_size'] = self.kernel_size
         config['stride'] = self.stride
         config['image_size'] = self.image_size
-        config['backbone_layers'] = self.backbone_layers
+        config['backbone_f'] = self.backbone_f
         config['anchor_ratios'] = self.anchor_ratios
         config['anchor_scales'] = self.anchor_scales
 

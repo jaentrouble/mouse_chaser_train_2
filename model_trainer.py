@@ -465,12 +465,8 @@ if __name__ == '__main__':
                 tf.config.experimental.set_memory_growth(gpu, True)
         except RuntimeError as e:
             print(e)
-    backbone_inputs = keras.Input((240,320,3))
-    backbone_outputs = backbone_models.hr_5_3_8(backbone_inputs)
-    backbone_model = keras.Model(inputs=backbone_inputs,
-                                outputs=backbone_outputs)
     mymodel = ObjectDetector(
-        backbone_model,
+        'hr_5_3_8',
         256,
         16,
         8,
