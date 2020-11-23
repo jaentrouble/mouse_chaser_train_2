@@ -14,6 +14,8 @@ import cv2
 from pathlib import Path
 import os
 import pickle
+from extra_models.object_detector import ObjectDetector
+from extra_models import backbone_models
 
 class ChaserModel(keras.Model):
     """ChaserModel
@@ -455,22 +457,25 @@ def run_training(
 
 
 if __name__ == '__main__':
-    import os
-    data_dir = 'data/save'
+    import numpy as np
 
-    ds = create_train_dataset(data_dir, ['nose','tail'], (480,640),1,200)
-    sample = ds.take(5).as_numpy_iterator()
-    fig = plt.figure(figsize=(10,10))
-    for i, s in enumerate(sample):
-        ax = fig.add_subplot(5,3,3*i+1)
-        img = s[0][0]
-        ax.imshow(img)
-        ax = fig.add_subplot(5,3,3*i+2)
-        nose = s[1]['nose'][0]
-        ax.imshow(img,alpha=0.5)
-        ax.imshow(nose,alpha=0.5)
-        ax = fig.add_subplot(5,3,3*i+3)
-        tail = s[1]['tail'][0]
-        ax.imshow(img,alpha=0.5)
-        ax.imshow(tail,alpha=0.5)
-    plt.show()
+    backbone_inputs = keras.Input((240,320,3))
+    backbone_outputs = backbone_models.hr_5_3_8(backbone_inputs)
+    backbone_model = keras.Model(inputs=backbone_inputs,
+                                outputs=backbone_outputs)
+    mymodel = ObjectDetector(
+        backbone_model,
+        256,
+        16,
+        8,
+        (320,240),
+    )
+    image = np.random.random((1,240,320,3))
+    gt_boxes = np.array([[
+        [0.1,0.1,0.3,0.3],
+        [0.4,0.4,0.8,0.8],
+        [0.2,0.3,0.4,0.5],
+    ]])
+    classes = np.ones((1,3))
+    mymodel.compile(optimizer='adam')
+    mymodel.fit((image,gt_boxes,classes))

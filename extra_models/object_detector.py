@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras import mixed_precision
+from extra_models import backbone_models
 
 RPN_TRAIN_THRES = 0.5
 BATCH_SIZE = 128
@@ -9,9 +10,9 @@ POSITIVE_RATIO = 0.5
 
 # NOTE: Here, 9 stands for anchor_set_num
 
-class RPN(keras.Model):
-    """RPN
-    Gets a feature map and returns list of RoIs
+class ObjectDetector(keras.Model):
+    """ObjectDetector
+    Gets an image and returns detected boundary boxes with classes
 
     Note:
     Call method is not meant to be used when training.
@@ -24,6 +25,7 @@ class RPN(keras.Model):
     """
     def __init__(
         self, 
+        backbone_layers,
         intermediate_filters,
         kernel_size,
         stride,
@@ -34,7 +36,9 @@ class RPN(keras.Model):
         """
         Arguments
         ---------
-        intermediate_filters:
+        backbone_layers: keras.Model
+            A model that takes images and retuns features
+        intermediate_filters: int
             filter number of the first conv layer
         kernel_size: int
             kernel size of the first conv layer
@@ -47,28 +51,21 @@ class RPN(keras.Model):
         anchor_scales: list
             list of anchor sizes
         """
+        super().__init__()
+        self.backbone_layers = backbone_layers
         self.intermediate_filters = intermediate_filters
         self.kernel_size = kernel_size
         self.stride = stride
         self.image_size = image_size
         self.anchor_ratios = anchor_ratios
         self.anchor_scales = anchor_scales
+        self.loss_tracker = keras.metrics.Mean(name='loss')
 
-    def build(self, input_shape):
-        anchor_num = len(self.anchor_scales) * len(self.anchor_scales)
         self.inter_conv = layers.Conv2D(
             self.intermediate_filters,
             self.kernel_size,
             strides=self.stride,
         )
-        # input is in n*h*w*c order
-        self.width = tf.ceil((input_shape[-2]-self.kernel_size+1)/self.stride)
-        self.height = tf.ceil((input_shape[-3]-self.kernel_size+1)/self.stride)
-        # Shape: (h,w,9,4)
-        self._all_anchors = self.generate_anchors_pre(self.height, self.width)
-        # Shape: (num_inside,3), (num_inside,4)
-        self._idx_inside, self._inside_anchors = \
-            self.get_inside_anchors(self._all_anchors)
         
         self.anchor_set_num = len(self.anchor_ratios)*len(self.anchor_scales)
 
@@ -81,35 +78,53 @@ class RPN(keras.Model):
             1,
         )
 
-        self.loss_tracker = keras.metrics.Mean(name='loss')
+        
 
     def call(self, inputs, training=None):
+        features = self.backbone_layers(inputs)
+        
         feature_map = self.inter_conv(inputs)
 
         cls_score = self.cls_conv(feature_map)
         bbox_reg = self.reg_conv(feature_map)
-        except NotImplementedError
+        raise NotImplementedError
 
-    def train_step(self, features, gt_boxes):
+    def train_step(self, data):
         """
         Parameters
         ----------
-        features:
-            Output of backbone models
-        gt_boxes:
-            Ground truth boxes
-            Note: This model does not need tags.
+        data: (image, gt_boxes, classes)
+            image:
+                Shape: (1,H,W,3)
+            gt_boxes:
+                Ground truth boxes
+            classes:
+                Ground truth classes of gt_boxes, in the same order
         """
-        rpn_labels, rpn_bbox_targets, rpn_bbox_mask = \
-            self.anchor_target(gt_boxes)
-        # Shape: (num_not_-1, 4), 4 for (1, height, width, 9)
-        rpn_select = tf.where(tf.not_equal(
-            rpn_labels,
-            -1
-        ))
+        # Data comes in ((image, gt_boxes, classes),)
+        image, gt_boxes, classes = data[0]
+
         with tf.GradientTape() as tape:
-            feature_map = self.inter_conv(inputs)
-            
+            features = self.backbone_layers(image, training=True)
+            # Shape: (N,H,W,C)
+            feature_map = self.inter_conv(features)
+
+            # Shape: (h,w,9,4)
+            f_height = feature_map.shape[1]
+            f_width = feature_map.shape[2]
+            all_anchors = self.generate_anchors_pre(f_height,f_width)
+            # Shape: (num_inside,3), (num_inside,4)
+            idx_inside, inside_anchors = \
+                self.get_inside_anchors(all_anchors)
+            rpn_labels, rpn_bbox_targets, rpn_bbox_mask = \
+                self.anchor_target(idx_inside, inside_anchors, gt_boxes,
+                                f_height, f_width)
+            # Shape: (num_not_-1, 4), 4 for (1, height, width, 9)
+            rpn_select = tf.where(tf.not_equal(
+                rpn_labels,
+                -1
+            ))
+                
             # Class loss
             # Shape: (1, height, width, 9), Batch should be 1
             cls_score = self.cls_conv(feature_map)
@@ -145,6 +160,13 @@ class RPN(keras.Model):
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+
+        self.loss_tracker.update_state(loss)
+        return {'loss': self.loss_tracker.result()}
+    
+    @property
+    def metrics(self):
+        return [self.loss_tracker]
 
 
 
@@ -202,7 +224,7 @@ class RPN(keras.Model):
             axis=-1,
         )
         S2 = tf.reduce_prod(
-            bbox2[...,2:]-bbox2[...,0:2]+tf.constant([gamma_w,gamma_h]),,
+            bbox2[...,2:]-bbox2[...,0:2]+tf.constant([gamma_w,gamma_h]),
             axis=-1,
         )
         
@@ -267,20 +289,34 @@ class RPN(keras.Model):
 
         return anchors
 
-    def anchor_target(self, gt_boxes):
+    def anchor_target(
+        self, 
+        idx_inside, 
+        inside_anchors, 
+        gt_boxes,
+        f_height,
+        f_width,
+    ):
         """Anchor_target
         Create target data
 
         Parameters
         ----------
+        idx_inside:
+            Shape: (num_inside,3), 3 for (H,W,9)
+            Indices of anchors that are completely inside the image
+        inside_anchors:
+            Shape: (num_inside,4)
         gt_boxes:
             Shape: (k, 4)
+        f_height, f_width: int
+            final feature shape
         """
-        num_inside = self._inside_anchors.shape[0]
+        num_inside = inside_anchors.shape[0]
         # Shape: (num_inside,)
         labels = tf.zeros((num_inside,))
         # Shape: (num_inside, 1, 4)
-        i_anch_exp = tf.expand_dims(self._inside_anchors,1)
+        i_anch_exp = tf.expand_dims(inside_anchors,1)
         # Shape: (1, k, 4)
         gt_boxes_exp = tf.expand_dims(gt_boxes,0)
         # Shape: (num_inside, k)
@@ -345,7 +381,7 @@ class RPN(keras.Model):
         )
         # Shape: (num_inside, 4)
         bbox_targets = self.bbox_delta_transform(
-            self._inside_anchors, gt_gathered)
+            inside_anchors, gt_gathered)
         
         # Only the positive ones have regression targets
         p_idx = tf.where(labels==1)
@@ -359,8 +395,8 @@ class RPN(keras.Model):
 
         # Shape: (height, width, 9)
         rpn_labels = tf.tensor_scatter_nd_update(
-            tf.fill([self.height, self.width, self.anchor_set_num], -1.0),
-            self._idx_inside,
+            tf.fill([f_height, f_width, self.anchor_set_num], -1.0),
+            idx_inside,
             labels,
         )
         # Shape: (1, height, width, 9)
@@ -368,12 +404,12 @@ class RPN(keras.Model):
 
         rpn_bbox_targets = tf.tensor_scatter_nd_update(
             tf.zeros([
-                self.height,
-                self.width,
+                f_height,
+                f_width,
                 self.anchor_set_num,
                 4,
             ]),
-            self._idx_inside,
+            idx_inside,
             bbox_targets,
         )
         # Shape: (1, height, width, 9, 4)
@@ -381,12 +417,12 @@ class RPN(keras.Model):
 
         rpn_bbox_mask = tf.tensor_scatter_nd_update(
             tf.zeros([
-                self.height,
-                self.width,
+                f_height,
+                f_width,
                 self.anchor_set_num,
                 1,
             ]),
-            self._idx_inside,
+            idx_inside,
             bbox_mask,
         )
         # Shape: (1, height, width, 9, 1)
@@ -439,10 +475,11 @@ class RPN(keras.Model):
     def get_config(self):
         config = super().get_config()
         config['intermediate_filters'] = self.intermediate_filters
-        config['width'] = self.width
-        config['height'] = self.height
         config['kernel_size'] = self.kernel_size
         config['stride'] = self.stride
         config['image_size'] = self.image_size
+        config['backbone_layers'] = self.backbone_layers
+        config['anchor_ratios'] = self.anchor_ratios
+        config['anchor_scales'] = self.anchor_scales
 
         return config
