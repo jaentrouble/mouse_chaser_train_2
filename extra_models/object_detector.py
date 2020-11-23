@@ -300,10 +300,7 @@ class ObjectDetector(keras.Model):
 
         return anchors
 
-    def anchor_target(
-        self, 
-        gt_boxes,
-    ):
+    def anchor_target(self, gt_boxes,):
         """Anchor_target
         Create target data
 
@@ -432,8 +429,6 @@ class ObjectDetector(keras.Model):
         return rpn_labels, rpn_bbox_targets, rpn_bbox_mask
 
 
-
-
     def bbox_delta_transform(self, an, gt):
         """
         Calculate distance between anchors and ground truth.
@@ -445,6 +440,7 @@ class ObjectDetector(keras.Model):
             Anchors
         gt: tf.Tensor
             Ground truth
+
         Return
         ------
         targets: tf.Tensor
@@ -471,6 +467,51 @@ class ObjectDetector(keras.Model):
 
         target = tf.stack([dx,dy,dw,dh], axis=-1)
         return target
+    
+    def bbox_delta_inv(self, boxes, deltas):
+        """
+        Inverse function of bbox_delta_transform
+
+        Parameters
+        ----------
+        boxes: tf.Tensor
+            Anchors (x1, y1, x2, y2)
+        deltas:
+            Output of reg layer (dx, dy, dw, dh)
+
+        Return
+        ------
+        pred_boxes: tf.Tensor
+            (x1, y1, x2, y2)
+        """
+        g_width = 1/self.image_size[0]
+        g_height = 1/self.image_size[1]
+        widths = boxes[...,2] - boxes[...,0] + g_width
+        heights = boxes[...,3] - boxes[...,1] + g_height
+        ctr_x = (boxes[...,0] + boxes[...,2])/2
+        ctr_y = (boxes[...,1] + boxes[...,3])/2
+
+        dx = deltas[...,0]
+        dy = deltas[...,1]
+        dw = deltas[...,2]
+        dh = deltas[...,3]
+
+        pred_ctr_x = (dx * widths) + ctr_x
+        pred_ctr_y = (dy * heights) + ctr_y
+        pred_w = tf.exp(dw) * widths
+        pred_h = tf.exp(dh) * heights
+
+        pred_x1 = pred_ctr_x - (pred_w * 0.5)
+        pred_y1 = pred_ctr_y - (pred_h * 0.5)
+        pred_x2 = pred_ctr_x + (pred_w * 0.5)
+        pred_y2 = pred_ctr_y + (pred_h * 0.5)
+        pred_boxes = tf.stack([
+            pred_x1,
+            pred_y1,
+            pred_x2,
+            pred_y2,
+        ], axis=-1)
+        return pred_boxes
 
     def get_config(self):
         config = super().get_config()
