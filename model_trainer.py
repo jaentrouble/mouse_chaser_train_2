@@ -436,7 +436,7 @@ if __name__ == '__main__':
     ds = create_train_dataset(
         'data',
         img_size,
-        # ['food'],
-        # [(20,20)],
+        ['food'],
+        [(20,20)],
     )
     mymodel.fit(ds,steps_per_epoch=100)
