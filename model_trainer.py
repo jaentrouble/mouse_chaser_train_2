@@ -306,7 +306,7 @@ def run_training(
         name, 
         epochs,
         steps_per_epoch,
-        batch_size,
+        # batch_size,
         intermediate_filters,
         kernel_size,
         stride,
@@ -385,14 +385,14 @@ def run_training(
         bbox_sizes,
         buffer_size=1000,
     )
-    val_ds = create_train_dataset(
-        val_dir,
-        img_size,
-        class_names,
-        bbox_sizes,
-        buffer_size=100,
-        val_data=True,
-    )
+    # val_ds = create_train_dataset(
+    #     val_dir,
+    #     img_size,
+    #     class_names,
+    #     bbox_sizes,
+    #     buffer_size=100,
+    #     val_data=True,
+    # )
 
     # image_callback = ValFigCallback(val_ds, logdir, class_labels)
 
@@ -409,8 +409,8 @@ def run_training(
             # image_callback,
         ],
         verbose=0,
-        validation_data=val_ds,
-        validation_steps=100,
+        # validation_data=val_ds,
+        # validation_steps=100,
     )
 
 

@@ -18,7 +18,8 @@ parser.add_argument('-lr', dest='lr')
 parser.add_argument('-n','--name', dest='name')
 parser.add_argument('-e','--epochs', dest='epochs')
 parser.add_argument('-s','--steps', dest='steps', default=0)
-parser.add_argument('-b','--batch', dest='batch', default=16)
+# No Batch here : only one image allowed
+# parser.add_argument('-b','--batch', dest='batch', default=16)
 parser.add_argument('-mf','--mixedfloat', dest='mixed_float', 
                     action='store_true',default=False)
 parser.add_argument('-mg','--memorygrow', dest='mem_growth',
@@ -62,7 +63,7 @@ lr_f = getattr(model_lr, args.lr)
 name = args.name
 epochs = int(args.epochs)
 steps_per_epoch = int(args.steps)
-batch_size = int(args.batch)
+# batch_size = int(args.batch)
 mixed_float = args.mixed_float
 load_model_path = args.load
 profile = args.profile
@@ -75,7 +76,7 @@ kwargs['lr_f'] = lr_f
 kwargs['name'] = name
 kwargs['epochs'] = epochs
 kwargs['steps_per_epoch'] = steps_per_epoch
-kwargs['batch_size'] = batch_size
+# kwargs['batch_size'] = batch_size
 kwargs['intermediate_filters'] = 256
 kwargs['kernel_size'] = 16
 kwargs['stride'] = 8
