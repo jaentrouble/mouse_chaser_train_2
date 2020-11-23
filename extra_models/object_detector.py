@@ -8,6 +8,11 @@ from extra_models import backbone_models
 RPN_TRAIN_THRES = 0.5
 BATCH_SIZE = 128
 POSITIVE_RATIO = 0.5
+NMS_TOP_N = 2000
+NMS_THRES = 0.7
+SOFT_SIGMA = 0.5
+BG_RATIO = 0.75
+
 
 # NOTE: Here, 9 stands for anchor_set_num
 
@@ -16,8 +21,11 @@ class ObjectDetector(keras.Model):
     Gets an image and returns detected boundary boxes with classes
 
     Note:
-    Call method is not meant to be used when training.
-    Use train_step directly.
+        This model only takes a single image at a time.
+
+    Note:
+        Call method is not meant to be used when training.
+        Use train_step directly.
     
     RoI : (x1, y1, x2, y2), all normalized to [0,1]
         x: width
@@ -31,6 +39,7 @@ class ObjectDetector(keras.Model):
         kernel_size,
         stride,
         image_size,
+        num_classes,
         anchor_ratios=[0.5,1.0,2.0], 
         anchor_scales=[0.2,0.4,0.7]
     ):
@@ -47,6 +56,8 @@ class ObjectDetector(keras.Model):
             stride of the conv layer
         image_size: tuple
             (WIDTH, HEIGHT) of the original input image
+        num_classes: int
+            Number of object classes
         anchor_ratios: list
             list of anchor shapes (width/height)
         anchor_scales: list
@@ -58,6 +69,7 @@ class ObjectDetector(keras.Model):
         self.kernel_size = kernel_size
         self.stride = stride
         self.image_size = image_size
+        self.num_classes = num_classes
         self.anchor_ratios = anchor_ratios
         self.anchor_scales = anchor_scales
         self.loss_tracker = keras.metrics.Mean(name='loss')
@@ -76,7 +88,9 @@ class ObjectDetector(keras.Model):
 
         self.f_height, self.f_width = \
             self.inter_conv(backbone_outputs).shape[1:3]
+        # Shape: (h,w,9,4)
         self._all_anchors = self.generate_anchors_pre(self.f_height, self.f_width)
+        # Shape: (num_inside,3), (num_inside,4)
         self._idx_inside, self._inside_anchors = \
             self.get_inside_anchors(self._all_anchors)
         
@@ -94,13 +108,16 @@ class ObjectDetector(keras.Model):
         
 
     def call(self, inputs, training=None):
+        """
+        TODO: Right now, it only suggests RoIs
+        """
         features = self.backbone_model(inputs)
-        
         feature_map = self.inter_conv(inputs)
-
         cls_score = self.cls_conv(feature_map)
         bbox_reg = self.reg_conv(feature_map)
-        raise NotImplementedError
+
+
+        return self.proposal(cls_score, bbox_reg)
 
     def train_step(self, data):
         """
@@ -120,16 +137,9 @@ class ObjectDetector(keras.Model):
 
         with tf.GradientTape() as tape:
             features = self.backbone_model(image, training=True)
-            # Shape: (N,H,W,C)
+            # Shape: (1,H,W,C)
             feature_map = self.inter_conv(features)
 
-            # Shape: (h,w,9,4)
-            # f_height = feature_map.shape[1]
-            # f_width = feature_map.shape[2]
-            # all_anchors = self.generate_anchors_pre(f_height,f_width)
-            # # Shape: (num_inside,3), (num_inside,4)
-            # idx_inside, inside_anchors = \
-            #     self.get_inside_anchors(all_anchors)
             rpn_labels, rpn_bbox_targets, rpn_bbox_mask = \
                 self.anchor_target(gt_boxes)
             # Shape: (num_not_-1, 4), 4 for (1, height, width, 9)
@@ -210,6 +220,64 @@ class ObjectDetector(keras.Model):
                    + (abs_box_diff - (0.5/sigma_2))*(1-smooth_sign)
         box_loss = tf.reduce_sum(box_loss) / tf.reduce_sum(bbox_mask)
         return box_loss
+
+    def proposal(self, rpn_cls_score, rpn_bbox_pred):
+        """
+        Parameters
+        ----------
+        rpn_cls_score: tf.Tensor
+            Output of cls layer
+            Expects logit; sigmoid is done here
+            Shape: (h,w,9)
+        rpn_bbox_pred: tf.Tensor
+            Output of reg layer
+            Will be flattened anyway, so shape does not matter
+            Shape: (h,w,9*4)
+
+        Returns
+        -------
+        boxes: tf.Tensor
+            Proposed maximum N boxes
+            Shape: (M, 4) where M<=N
+        soft_probs: tf.Tensor
+            Softened scores
+            Shape: (M,)
+        """
+        scores = tf.reshape(rpn_cls_score, (-1,))
+        probs = tf.math.sigmoid(scores)
+        deltas = tf.reshape(rpn_bbox_pred,(-1,4))
+        flattened_anchors = tf.reshape(self._all_anchors,(-1,4))
+
+        proposals = self.bbox_delta_inv(flattened_anchors, deltas)
+        proposals = tf.clip_by_value(proposals, 0, 1)
+
+        indices, soft_probs = tf.image.non_max_suppression_with_scores(
+            proposals,
+            probs,
+            NMS_TOP_N,
+            iou_threshold=NMS_THRES,
+            soft_nms_sigma=SOFT_SIGMA,
+        )
+
+        boxes = tf.gather(proposals, indices)
+        return boxes, soft_probs
+
+    def proposal_target(self, rois, scores, gt_boxes, gt_labels):
+        """
+        Assign target gt_box and labels to rois
+        
+        Parameters
+        ----------
+        rois:
+            Shape: (M, 4)
+        scores:
+            Shape: (M,)
+        gt_boxes:
+            Shape: (k, 4)
+        gt_labels:
+            Shape: (k,)
+        """
+        raise NotImplementedError
 
 
 
@@ -513,6 +581,7 @@ class ObjectDetector(keras.Model):
         ], axis=-1)
         return pred_boxes
 
+
     def get_config(self):
         config = super().get_config()
         config['intermediate_filters'] = self.intermediate_filters
@@ -522,5 +591,6 @@ class ObjectDetector(keras.Model):
         config['backbone_f'] = self.backbone_f
         config['anchor_ratios'] = self.anchor_ratios
         config['anchor_scales'] = self.anchor_scales
+        config['num_classes'] = self.num_classes
 
         return config

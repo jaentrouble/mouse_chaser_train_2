@@ -471,6 +471,7 @@ if __name__ == '__main__':
         16,
         8,
         (320,240),
+        3,
     )
     image = np.random.random((100,240,320,3))
     gt_boxes = np.array([[
