@@ -56,12 +56,8 @@ if args.mem_limit:
 train_dir = 'data/save'
 val_dir = 'data/val'
 
-specific_fs={
-    'nose' : specific_models.conv3_16,
-    'tail' : specific_models.conv3_16,
-}
 
-backbone_f = getattr(backbone_models, args.model)
+backbone_f = args.model
 lr_f = getattr(model_lr, args.lr)
 name = args.name
 epochs = int(args.epochs)
@@ -70,20 +66,24 @@ batch_size = int(args.batch)
 mixed_float = args.mixed_float
 load_model_path = args.load
 profile = args.profile
-class_labels = ['nose', 'tail']
+class_names = ['food']
+bbox_sizes = [(25,25)]
 
 kwargs = {}
 kwargs['backbone_f'] = backbone_f
-kwargs['specific_fs'] = specific_fs
 kwargs['lr_f'] = lr_f
 kwargs['name'] = name
 kwargs['epochs'] = epochs
 kwargs['steps_per_epoch'] = steps_per_epoch
 kwargs['batch_size'] = batch_size
-kwargs['class_labels'] = class_labels
+kwargs['intermediate_filters'] = 256
+kwargs['kernel_size'] = 16
+kwargs['stride'] = 8
+kwargs['bbox_sizes'] = bbox_sizes
+kwargs['class_names'] = class_names
 kwargs['train_dir'] = train_dir
 kwargs['val_dir'] = val_dir
-kwargs['img_size'] = (240,320)
+kwargs['img_size'] = (640,480)
 kwargs['mixed_float'] = mixed_float
 kwargs['notebook'] = False
 kwargs['load_model_path'] = load_model_path

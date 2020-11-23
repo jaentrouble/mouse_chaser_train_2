@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import mixed_precision
 import time
+from datetime import datetime
 from custom_tqdm import TqdmNotebookCallback
 from tqdm.keras import TqdmCallback
 import albumentations as A
@@ -301,13 +302,16 @@ class ValFigCallback(keras.callbacks.Callback):
 
 def run_training(
         backbone_f,
-        specific_fs, 
         lr_f, 
         name, 
         epochs,
         steps_per_epoch,
         batch_size,
-        class_labels, 
+        intermediate_filters,
+        kernel_size,
+        stride,
+        class_names, 
+        bbox_sizes,
         train_dir,
         val_dir,
         img_size,
@@ -318,7 +322,7 @@ def run_training(
     ):
     """
     img_size:
-        (HEIGHT, WIDTH)
+        (WIDTH, HEIGHT)
     """
 
     if mixed_float:
@@ -328,15 +332,20 @@ def run_training(
     st = time.time()
 
     inputs = keras.Input((img_size[0],img_size[1],3))
-    mymodel = ChaserModel(inputs, backbone_f, specific_fs)
+    num_classes = len(class_names)
+    mymodel = ObjectDetector(
+        backbone_f,
+        intermediate_filters,
+        kernel_size,
+        stride,
+        img_size,
+        num_classes
+    )
     if load_model_path:
         mymodel.load_weights(load_model_path)
         print('loaded from : ' + load_model_path)
-    loss = keras.losses.MeanSquaredError()
     mymodel.compile(
         optimizer='adam',
-        loss=loss,
-        metrics=[MaxPointDistL2(name='mpd'),]
     )
 
     logdir = 'logs/fit/' + name
@@ -371,21 +380,21 @@ def run_training(
 
     train_ds = create_train_dataset(
         train_dir,
-        class_labels,
         img_size,
-        batch_size,
-        buffer_size=1000
+        class_names,
+        bbox_sizes,
+        buffer_size=1000,
     )
     val_ds = create_train_dataset(
         val_dir,
-        class_labels,
         img_size,
-        batch_size,
+        class_names,
+        bbox_sizes,
         buffer_size=100,
         val_data=True,
     )
 
-    image_callback = ValFigCallback(val_ds, logdir, class_labels)
+    # image_callback = ValFigCallback(val_ds, logdir, class_labels)
 
     mymodel.fit(
         x=train_ds,
@@ -397,7 +406,7 @@ def run_training(
             lr_callback,
             save_callback,
             tqdm_callback,
-            image_callback,
+            # image_callback,
         ],
         verbose=0,
         validation_data=val_ds,
@@ -408,6 +417,7 @@ def run_training(
     delta = time.time()-st
     hours, remain = divmod(delta, 3600)
     minutes, seconds = divmod(remain, 60)
+    print(datetime.now().strftime('%Y/%m/%d %H:%M:%S'))
     print(f'Took {hours:.0f} hours {minutes:.0f} minutes {seconds:.2f} seconds')
 
 
