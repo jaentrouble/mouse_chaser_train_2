@@ -81,6 +81,8 @@ class RPN(keras.Model):
             1,
         )
 
+        self.loss_tracker = keras.metrics.Mean(name='loss')
+
     def call(self, inputs, training=None):
         feature_map = self.inter_conv(inputs)
 
@@ -98,12 +100,81 @@ class RPN(keras.Model):
             Ground truth boxes
             Note: This model does not need tags.
         """
+        rpn_labels, rpn_bbox_targets, rpn_bbox_mask = \
+            self.anchor_target(gt_boxes)
+        # Shape: (num_not_-1, 4), 4 for (1, height, width, 9)
+        rpn_select = tf.where(tf.not_equal(
+            rpn_labels,
+            -1
+        ))
         with tf.GradientTape() as tape:
             feature_map = self.inter_conv(inputs)
             
             # Class loss
+            # Shape: (1, height, width, 9), Batch should be 1
             cls_score = self.cls_conv(feature_map)
-            
+            # Shape: (num_not_-1,)
+            rpn_selected_cls_score = tf.gather_nd(
+                cls_score,
+                rpn_select,
+            )
+            rpn_selected_labels = tf.gather_nd(
+                rpn_labels,
+                rpn_select,
+            )
+            rpn_cls_loss = tf.reduce_mean(tf.losses.binary_crossentropy(
+                rpn_selected_labels,
+                rpn_selected_cls_score,
+                from_logits=True,
+            ))
+
+            # Reg loss
+            bbox_pred = self.reg_conv(feature_map)
+            bbox_pred = tf.reshape(bbox_pred,[
+                tf.shape(bbox_pred)[0],
+                tf.shape(bbox_pred)[1],
+                tf.shape(bbox_pred)[2],
+                self.anchor_set_num,
+                4,
+            ])
+            rpn_bbox_loss = self.smooth_l1_loss(
+                bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
+            )
+            loss = rpn_cls_loss + rpn_bbox_loss
+
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+
+
+
+    def smooth_l1_loss(self, bbox_pred, bbox_targets, bbox_mask, sigma=1.0):
+        """smooth_l1_loss
+        Let x be target-pred
+        if abs(x) < 1: 0.5*x**2
+        else: abs(x) - 0.5
+
+        Parameters
+        ----------
+        bbox_pred, bbox_targets: tf.Tensor
+            Shape: (1, height, width, 9, 4)
+            Order does not matter
+        bbox_mask: tf.Tensor
+            Shape: (1, height, width, 9, 1)
+            Will be multiplied to loss
+        sigma: float
+            How steep L2 part is.
+            i.e. y=sigma**2 * x
+        """
+        sigma_2 = sigma**2
+        box_diff = bbox_pred - bbox_targets
+        masked_box_diff = bbox_pred * bbox_mask
+        abs_box_diff = tf.abs(masked_box_dif)
+        smooth_sign = tf.cast(abs_box_diff<(1/sigma_2),tf.float32)
+        box_loss = (abs_box_diff**2)*(sigma_2/2)*smooth_sign \
+                   + (abs_box_diff - (0.5/sigma_2))*(1-smooth_sign)
+        box_loss = tf.reduce_sum(box_loss) / tf.reduce_sum(bbox_mask)
+        return box_los
 
 
 
@@ -295,7 +366,7 @@ class RPN(keras.Model):
         # Shape: (1, height, width, 9)
         rpn_labels = tf.expand_dims(rpn_labels, axis=0)
 
-        rpn_bbox_target = tf.tensor_scatter_nd_update(
+        rpn_bbox_targets = tf.tensor_scatter_nd_update(
             tf.zeros([
                 self.height,
                 self.width,
@@ -305,6 +376,24 @@ class RPN(keras.Model):
             self._idx_inside,
             bbox_targets,
         )
+        # Shape: (1, height, width, 9, 4)
+        rpn_bbox_targets = tf.expand_dims(rpn_bbox_targets,axis=0)
+
+        rpn_bbox_mask = tf.tensor_scatter_nd_update(
+            tf.zeros([
+                self.height,
+                self.width,
+                self.anchor_set_num,
+                1,
+            ]),
+            self._idx_inside,
+            bbox_mask,
+        )
+        # Shape: (1, height, width, 9, 1)
+        rpn_bbox_mask = tf.expand_dims(rpn_bbox_mask, axis=0)
+
+
+        return rpn_labels, rpn_bbox_targets, rpn_bbox_mask
 
 
 
