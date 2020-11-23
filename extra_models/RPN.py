@@ -7,6 +7,8 @@ RPN_TRAIN_THRES = 0.5
 BATCH_SIZE = 128
 POSITIVE_RATIO = 0.5
 
+# NOTE: Here, 9 stands for anchor_set_num
+
 class RPN(keras.Model):
     """RPN
     Gets a feature map and returns list of RoIs
@@ -25,6 +27,7 @@ class RPN(keras.Model):
         intermediate_filters,
         kernel_size,
         stride,
+        image_size,
         anchor_ratios=[0.5,1.0,2.0], 
         anchor_scales=[0.2,0.4,0.7]
     ):
@@ -37,6 +40,8 @@ class RPN(keras.Model):
             kernel size of the first conv layer
         stride: int
             stride of the conv layer
+        image_size: tuple
+            (WIDTH, HEIGHT) of the original input image
         anchor_ratios: list
             list of anchor shapes (width/height)
         anchor_scales: list
@@ -45,6 +50,7 @@ class RPN(keras.Model):
         self.intermediate_filters = intermediate_filters
         self.kernel_size = kernel_size
         self.stride = stride
+        self.image_size = image_size
         self.anchor_ratios = anchor_ratios
         self.anchor_scales = anchor_scales
 
@@ -60,15 +66,18 @@ class RPN(keras.Model):
         self.height = tf.ceil((input_shape[-3]-self.kernel_size+1)/self.stride)
         # Shape: (h,w,9,4)
         self._all_anchors = self.generate_anchors_pre(self.height, self.width)
-        # Shape: (num_inside,4)
-        self._inside_anchors = self.get_inside_anchors(self._all_anchors)
+        # Shape: (num_inside,3), (num_inside,4)
+        self._idx_inside, self._inside_anchors = \
+            self.get_inside_anchors(self._all_anchors)
+        
+        self.anchor_set_num = len(self.anchor_ratios)*len(self.anchor_scales)
 
         self.cls_conv = layers.Conv2D(
-            len(self.anchor_ratios)*len(self.anchor_scales),
+            self.anchor_set_num,
             1,
         )
         self.reg_conv = layers.Conv2D(
-            4*len(self.anchor_ratios)*len(self.anchor_scales),
+            4*self.anchor_set_num,
             1,
         )
 
@@ -113,8 +122,8 @@ class RPN(keras.Model):
             Broadcasted shape, and the last axis is reduced.
         """
         # To prevent division by zero
-        gamma_w = 1/self.width
-        gamma_h = 1/self.height
+        gamma_w = 1/self.image_size[0]
+        gamma_h = 1/self.image_size[1]
         # x2,y2 must be bigger than x1,y1 all the time.
         # Do not add tf.abs because it may hide the problem
         S1 = tf.reduce_prod(
@@ -139,19 +148,19 @@ class RPN(keras.Model):
         """
         Only keep anchors inside the image
         """
-        # Shape: (h,w,9)
+        # Shape: (num_inside,3), 3 for (h,w,9)
         idx_inside = tf.where(
             (anchors[...,0] >= 0) &
             (anchors[...,1] >= 0) &
             (anchors[...,2] < 1) &
             (anchors[...,3] < 1)
         )
-        # shape:
+        # Shape: (num_inside,4)
         inside_anchors = tf.gather_nd(
             anchors,
             idx_inside
         )
-        return inside_anchors
+        return idx_inside, inside_anchors
     
     def generate_anchors_pre(self, height, width):
         x = tf.range(1, delta=1/width)
@@ -190,15 +199,22 @@ class RPN(keras.Model):
     def anchor_target(self, gt_boxes):
         """Anchor_target
         Create target data
+
+        Parameters
+        ----------
+        gt_boxes:
+            Shape: (k, 4)
         """
-        labels = tf.zeros((self._inside_anchors.shape[0],))
-        # Shape: (n, 1, 4)
+        num_inside = self._inside_anchors.shape[0]
+        # Shape: (num_inside,)
+        labels = tf.zeros((num_inside,))
+        # Shape: (num_inside, 1, 4)
         i_anch_exp = tf.expand_dims(self._inside_anchors,1)
         # Shape: (1, k, 4)
         gt_boxes_exp = tf.expand_dims(gt_boxes,0)
-        # Shape: (n, k)
+        # Shape: (num_inside, k)
         iou = self.iou(i_anch_exp, gt_boxes_exp)
-        # Shape: (n,)
+        # Shape: (num_inside,)
         argmax_iou = tf.argmax(iou, axis=1)
         max_iou = tf.reduce_max(iou, axis=1)
 
@@ -251,8 +267,85 @@ class RPN(keras.Model):
             ),
             lambda: labels
         )
+        
+        gt_gathered = tf.gather_nd(
+            gt_boxes,
+            tf.expand_dims(argmax_iou,-1),
+        )
+        # Shape: (num_inside, 4)
+        bbox_targets = self.bbox_delta_transform(
+            self._inside_anchors, gt_gathered)
+        
+        # Only the positive ones have regression targets
+        p_idx = tf.where(labels==1)
+        p_num = tf.shape(p_idx)[0]
+        # Shape: (num_inside, 1)
+        bbox_mask = tf.scatter_nd(
+            p_idx,
+            tf.ones((p_num,1)),
+            [num_inside,1],
+        )
+
+        # Shape: (height, width, 9)
+        rpn_labels = tf.tensor_scatter_nd_update(
+            tf.fill([self.height, self.width, self.anchor_set_num], -1.0),
+            self._idx_inside,
+            labels,
+        )
+        # Shape: (1, height, width, 9)
+        rpn_labels = tf.expand_dims(rpn_labels, axis=0)
+
+        rpn_bbox_target = tf.tensor_scatter_nd_update(
+            tf.zeros([
+                self.height,
+                self.width,
+                self.anchor_set_num,
+                4,
+            ]),
+            self._idx_inside,
+            bbox_targets,
+        )
 
 
+
+
+    def bbox_delta_transform(self, an, gt):
+        """
+        Calculate distance between anchors and ground truth.
+        This is the value that reg layer should predict.
+
+        Parameters
+        ----------
+        an: tf.Tensor
+            Anchors
+        gt: tf.Tensor
+            Ground truth
+        Return
+        ------
+        targets: tf.Tensor
+            last dimension: (dx, dy, dw, dh)
+            dx, dy: normalized to the anchor's size
+            dw, dh: log difference
+        """
+        g_width = 1/self.image_size[0]
+        g_height = 1/self.image_size[1]
+        an_widths = an[...,2] - an[...,0] + g_width
+        an_heights = an[...,3] - an[...,1] + g_height
+        an_ctr_x = an[...,0] + 0.5 * an_widths
+        an_ctr_y = an[...,1] + 0.5 * an_heights
+
+        gt_widths = gt[...,2] - gt[...,0] + g_width
+        gt_heights = gt[...,3] - gt[...,1] + g_height
+        gt_ctr_x = gt[...,0] + 0.5 * gt_widths
+        gt_ctr_y = gt[...,1] + 0.5 * gt_heights
+
+        dx = (gt_ctr_x - an_ctr_x) / an_widths
+        dy = (gt_ctr_y - an_ctr_y) / an_heights
+        dw = tf.math.log(gt_widths/an_widths)
+        dh = tf.math.log(gt_heights/an_heights)
+
+        target = tf.stack([dx,dy,dw,dh], axis=-1)
+        return target
 
     def get_config(self):
         config = super().get_config()
@@ -261,5 +354,6 @@ class RPN(keras.Model):
         config['height'] = self.height
         config['kernel_size'] = self.kernel_size
         config['stride'] = self.stride
+        config['image_size'] = self.image_size
 
         return config
