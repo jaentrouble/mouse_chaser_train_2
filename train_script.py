@@ -4,11 +4,8 @@ import model_lr
 import argparse
 import tensorflow as tf
 import os
-import imageio as io
-import json
 from pathlib import Path
 import random
-import specific_models
 from functools import partial
 
 parser = argparse.ArgumentParser()
