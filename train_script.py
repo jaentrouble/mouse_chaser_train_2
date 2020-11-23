@@ -1,6 +1,5 @@
 import numpy as np
 from model_trainer import run_training
-import backbone_models
 import model_lr
 import argparse
 import tensorflow as tf
