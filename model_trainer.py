@@ -485,4 +485,4 @@ if __name__ == '__main__':
     gt_boxes = np.ones((100,1,1)) * gt_boxes
     classes = np.ones((100,3))
     mymodel.compile(optimizer='adam')
-    mymodel.fit((image,gt_boxes,classes),steps_per_epoch=20,batch_size=5)
+    mymodel.fit((image,gt_boxes,classes),steps_per_epoch=100,batch_size=1)
