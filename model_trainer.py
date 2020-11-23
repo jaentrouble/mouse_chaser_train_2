@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.mixed_precision import experimental as mixed_precision
+from tensorflow.keras import mixed_precision
 import time
 from custom_tqdm import TqdmNotebookCallback
 from tqdm.keras import TqdmCallback
@@ -89,7 +89,7 @@ class AugGenerator():
             A.VerticalFlip(p=0.5),
             A.HorizontalFlip(p=0.5),
             # A.RandomRotate90(p=1),
-            A.Resize(img_size[0], img_size[1]),
+            A.Resize(img_size[1], img_size[0]),
             # A.Cutout(8,img_size[0]//12,img_size[1]//12)
         ],
         # (x1, y1, x2, y2) format, all normalized
@@ -169,7 +169,7 @@ class AugGenerator():
         if len(t_box) < 1:
             return self.__next__()
 
-        return image, t_box, t_labels
+        return t_image, t_box, t_labels
 
 
 class ValGenerator(AugGenerator):
@@ -419,20 +419,24 @@ if __name__ == '__main__':
                 tf.config.experimental.set_memory_growth(gpu, True)
         except RuntimeError as e:
             print(e)
+    policy = mixed_precision.Policy('mixed_float16')
+    mixed_precision.set_global_policy(policy)
+    # tf.config.set_visible_devices([],'GPU')
+    img_size = (640,480)
     mymodel = ObjectDetector(
         'hr_5_3_8',
         256,
         16,
         8,
-        (640,480),
+        img_size,
         3,
     )
     mymodel.compile(optimizer='adam')
 
     ds = create_train_dataset(
         'data',
-        (640,480),
-        ['food'],
-        [(20,20)],
+        img_size,
+        # ['food'],
+        # [(20,20)],
     )
-    mymodel.fit(ds,steps_per_epoch=100,)
+    mymodel.fit(ds,steps_per_epoch=100)

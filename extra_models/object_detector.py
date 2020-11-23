@@ -78,7 +78,7 @@ class ObjectDetector(keras.Model):
         backbone_inputs = keras.Input((image_h,image_w,3))
         backbone_outputs = getattr(backbone_models,backbone_f)(backbone_inputs)
         self.backbone_model = keras.Model(inputs=backbone_inputs,
-                                        outputs=backbone_outputs)
+                                        outputs=backbone_outputs,)
 
         self.inter_conv = layers.Conv2D(
             self.intermediate_filters,
@@ -99,10 +99,12 @@ class ObjectDetector(keras.Model):
         self.cls_conv = layers.Conv2D(
             self.anchor_set_num,
             1,
+            dtype=tf.float32,
         )
         self.reg_conv = layers.Conv2D(
             4*self.anchor_set_num,
             1,
+            dtype=tf.float32,
         )
 
         
@@ -131,7 +133,6 @@ class ObjectDetector(keras.Model):
             classes:
                 Ground truth classes of gt_boxes, in the same order
         """
-        print(data)
         image, gt_boxes, classes = data
         gt_boxes = gt_boxes[0]
         classes = classes[0]
@@ -343,7 +344,7 @@ class ObjectDetector(keras.Model):
         xx, yy = tf.meshgrid(x, y)
         
         # shape: (h,w,4)
-        centers = tf.transpose(tf.stack([xx,yy,xx,yy]))
+        centers = tf.stack([xx,yy,xx,yy],axis=-1)
         # shape: (9, 4)
         anchor_sample = self.generate_anchors_set()
         # shape: (h,w,9,4)
