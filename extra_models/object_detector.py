@@ -74,6 +74,7 @@ class ObjectDetector(keras.Model):
         self.anchor_ratios = anchor_ratios
         self.anchor_scales = anchor_scales
         self.loss_tracker = keras.metrics.Mean(name='loss')
+        self.accuracy_metric = keras.metrics.BinaryAccuracy(name='accuracy')
 
         image_w, image_h = image_size
         backbone_inputs = keras.Input((image_h,image_w,3))
@@ -188,11 +189,14 @@ class ObjectDetector(keras.Model):
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
         self.loss_tracker.update_state(loss)
-        return {'loss': self.loss_tracker.result()}
+        prob = tf.sigmoid(rpn_selected_cls_score)
+        self.accuracy_metric.update_state(rpn_selected_labels, prob)
+        return {'loss': self.loss_tracker.result(),
+                'accuracy': self.accuracy_metric.result()}
     
     @property
     def metrics(self):
-        return [self.loss_tracker]
+        return [self.loss_tracker, self.accuracy_metric]
 
 
 
