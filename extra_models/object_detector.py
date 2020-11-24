@@ -459,7 +459,7 @@ class ObjectDetector(keras.Model):
         mixed_n_idx = tf.random.shuffle(n_idx)
         delta_n = n_num - max_n_num
         labels = tf.cond(
-            delta_p > 0,
+            delta_n > 0,
             lambda: tf.tensor_scatter_nd_update(
                 labels,
                 mixed_n_idx[:delta_n],
