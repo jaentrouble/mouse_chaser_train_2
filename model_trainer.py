@@ -280,6 +280,7 @@ class ValFigCallback(keras.callbacks.Callback):
             sample = next(samples)
             image, gt_box, _ = sample
             rois, probs = self.model.predict(image, training=False)
+            print(rois)
             test_image = image[0].copy()
             gt_image = image[0].copy()
             gt_box = gt_box[0]
