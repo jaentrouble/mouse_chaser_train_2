@@ -279,9 +279,11 @@ class ValFigCallback(keras.callbacks.Callback):
         for i in range(4):
             sample = next(samples)
             image, gt_box, _ = sample
+            # Shape: (n,4), (n,)
             rois, probs = self.model(image, training=False)
             test_image = image[0].copy()
             gt_image = image[0].copy()
+            # Shape: (k,4)
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
             for roi in rois:
@@ -460,5 +462,7 @@ if __name__ == '__main__':
         ['food'],
         [(20,20)],
     )
-    image_callback = ValFigCallback(ds, 'logs/fit/test')
+    from datetime import datetime
+    now = datetime.now().strftime('%H_%M_%S')
+    image_callback = ValFigCallback(ds, f'logs/fit/{now}')
     mymodel.fit(ds,steps_per_epoch=2,callbacks=[image_callback])
