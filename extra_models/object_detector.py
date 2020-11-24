@@ -388,7 +388,6 @@ class ObjectDetector(keras.Model):
         gt_boxes_exp = tf.expand_dims(gt_boxes,0)
         # Shape: (num_inside, k)
         iou = self.iou(i_anch_exp, gt_boxes_exp)
-        print(iou)
         # Shape: (num_inside,)
         argmax_iou = tf.argmax(iou, axis=1)
         max_iou = tf.reduce_max(iou, axis=1)
