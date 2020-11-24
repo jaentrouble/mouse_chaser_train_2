@@ -119,14 +119,14 @@ class ObjectDetector(keras.Model):
         # gt = inputs[0]
         #---------------
 
-        features = self.backbone_model(inputs, training=False)
+        features = self.backbone_model(inputs, training=True)
         feature_map = self.inter_conv(features)
         cls_score = self.cls_conv(feature_map)
         bbox_reg = self.reg_conv(feature_map)
         #-----------DEBUG
         bbox_reg = tf.zeros_like(bbox_reg)
         #---------------------------------
-        
+
         boxes, soft_probs = self.proposal(cls_score, bbox_reg)
 
         #------------DEBUG
