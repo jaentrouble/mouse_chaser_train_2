@@ -286,9 +286,8 @@ class ValFigCallback(keras.callbacks.Callback):
             # Shape: (k,4)
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
-            print(rois.shape)
             for roi, p in zip(rois,probs):
-                color = [1-p,p,0]
+                color = [4*(1-p),4*(p-0.5),0]
                 x1, y1, x2, y2 = np.multiply(roi,[w,h,w,h,]).astype(np.int64)
                 test_image[y1,x1:x2] = color
                 test_image[y2,x1:x2] = color
