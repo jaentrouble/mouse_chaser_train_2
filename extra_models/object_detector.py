@@ -373,7 +373,8 @@ class ObjectDetector(keras.Model):
         bbox_reg:
             Shape: (N,4)
         """
-        f_height, f_width = tf.shape(features)[1:3]
+        f_height = tf.shape(features)[1]
+        f_width = tf.shape(features)[2]
         k = self.rfcn_window
         n_rois = tf.shape(rois)[0]
 
