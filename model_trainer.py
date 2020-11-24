@@ -344,7 +344,10 @@ def run_training(
     st = time.time()
 
     inputs = keras.Input((img_size[0],img_size[1],3))
-    num_classes = len(class_names)
+    if class_names is None:
+        num_classes = 1
+    else:
+        num_classes = len(class_names)+1
     mymodel = ObjectDetector(
         backbone_f,
         intermediate_filters,
