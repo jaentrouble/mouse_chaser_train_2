@@ -481,4 +481,4 @@ if __name__ == '__main__':
     from datetime import datetime
     now = datetime.now().strftime('%H_%M_%S')
     image_callback = ValFigCallback(ds, f'logs/fit/{now}')
-    mymodel.fit(ds,steps_per_epoch=10,callbacks=[image_callback])
+    mymodel.fit(ds,steps_per_epoch=2,callbacks=[image_callback])
