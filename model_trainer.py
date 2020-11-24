@@ -329,6 +329,7 @@ def run_training(
         intermediate_filters,
         kernel_size,
         stride,
+        rfcn_window,
         anchor_ratios,
         anchor_scales,
         class_names, 
@@ -364,6 +365,7 @@ def run_training(
         stride,
         img_size,
         num_classes,
+        rfcn_window,
         anchor_ratios,
         anchor_scales
     )
