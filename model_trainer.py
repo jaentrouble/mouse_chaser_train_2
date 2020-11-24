@@ -274,13 +274,12 @@ class ValFigCallback(keras.callbacks.Callback):
         return image
 
     def val_result_fig(self):
-        samples = ds.take(4).as_numpy_iterator()
+        samples = self.val_ds.take(4).as_numpy_iterator()
         fig = plt.figure(figsize=(15,15))
         for i in range(4):
             sample = next(samples)
             image, gt_box, _ = sample
             rois, probs = self.model.predict(image, training=False)
-            print(rois)
             test_image = image[0].copy()
             gt_image = image[0].copy()
             gt_box = gt_box[0]
