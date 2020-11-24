@@ -63,8 +63,8 @@ steps_per_epoch = int(args.steps)
 mixed_float = args.mixed_float
 load_model_path = args.load
 profile = args.profile
-class_names = ['food']
-bbox_sizes = [(25,25)]
+# class_names = ['food']
+# bbox_sizes = [(25,25)]
 
 kwargs = {}
 kwargs['backbone_f'] = backbone_f
