@@ -11,7 +11,8 @@ POSITIVE_RATIO = 0.5
 
 NMS_TOP_N = 2000
 NMS_THRES = 0.7
-NMS_SCORE_THRES = 0.0
+NMS_SCORE_THRES_RPN = 0.5
+NMS_SCORE_THRES_RFCN = 0.0
 SOFT_SIGMA = 1.0
 
 SMOOTH_L1_SIGMA = 1.0
@@ -499,7 +500,7 @@ class ObjectDetector(keras.Model):
             NMS_TOP_N,
             iou_threshold=NMS_THRES,
             soft_nms_sigma=SOFT_SIGMA,
-            score_threshold=NMS_SCORE_THRES,
+            score_threshold=NMS_SCORE_THRES_RPN,
         )
 
         boxes = tf.gather(proposals, indices)
@@ -556,7 +557,7 @@ class ObjectDetector(keras.Model):
                 NMS_TOP_N,
                 iou_threshold=NMS_THRES,
                 soft_nms_sigma=SOFT_SIGMA,
-                score_threshold=0.5,
+                score_threshold=NMS_SCORE_THRES_RFCN,
             )
             box_outputs.append(tf.gather(proposals, indices))
             soft_probs_outputs.append(soft_probs)
