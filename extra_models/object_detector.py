@@ -129,13 +129,14 @@ class ObjectDetector(keras.Model):
             rpn_labels,
             -1
         ))
-        boxes = self.bbox_delta_inv(self._all_anchors,boxes)
         boxes = tf.gather_nd(
-            boxes,
+            self._all_anchors,
             rpn_select,
         )
-        
-        soft_probs = tf.zeros(10)
+        soft_probs = tf.gather_nd(
+            rpn_labels,
+            rpn_select,
+        )
 
 
         return boxes,soft_probs
