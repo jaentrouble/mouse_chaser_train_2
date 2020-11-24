@@ -116,27 +116,29 @@ class ObjectDetector(keras.Model):
         TODO: Right now, it only suggests RoIs
         """
         #-------DEBUG
-        gt = inputs[0]
+        # gt = inputs[0]
         #---------------
-        # features = self.backbone_model(inputs, training=False)
-        # feature_map = self.inter_conv(features)
-        # cls_score = self.cls_conv(feature_map)
-        # bbox_reg = self.reg_conv(feature_map)
-        # boxes, soft_probs = self.proposal(cls_score, bbox_reg)
+
+        features = self.backbone_model(inputs, training=False)
+        feature_map = self.inter_conv(features)
+        cls_score = self.cls_conv(feature_map)
+        bbox_reg = self.reg_conv(feature_map)
+        boxes, soft_probs = self.proposal(cls_score, bbox_reg)
+
         #------------DEBUG
-        rpn_labels, boxes, _ = self.anchor_target(gt)
-        rpn_select = tf.where(tf.not_equal(
-            rpn_labels,
-            -1
-        ))
-        boxes = tf.gather_nd(
-            tf.expand_dims(self._all_anchors,0),
-            rpn_select,
-        )
-        soft_probs = tf.gather_nd(
-            rpn_labels,
-            rpn_select,
-        )
+        # rpn_labels, boxes, _ = self.anchor_target(gt)
+        # rpn_select = tf.where(tf.not_equal(
+        #     rpn_labels,
+        #     -1
+        # ))
+        # boxes = tf.gather_nd(
+        #     tf.expand_dims(self._all_anchors,0),
+        #     rpn_select,
+        # )
+        # soft_probs = tf.gather_nd(
+        #     rpn_labels,
+        #     rpn_select,
+        # )
 
 
         return boxes,soft_probs
