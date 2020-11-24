@@ -12,7 +12,7 @@ NMS_TOP_N = 2000
 NMS_THRES = 0.7
 SOFT_SIGMA = 0.5
 BG_RATIO = 0.75
-BBOX_LOSS_GAMMA = 0
+BBOX_LOSS_GAMMA = 1
 
 
 # NOTE: Here, 9 stands for anchor_set_num
