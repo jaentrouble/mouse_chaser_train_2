@@ -172,16 +172,20 @@ class ObjectDetector(keras.Model):
         #     rpn_select,
         # )
         #----------------------------------------------------
-        
+        print('-------------rois')
+        print(rois.shape)
         rfcn_cls_features = self.rfcn_cls_conv(features)
         rfcn_cls_score = self.rfcn_cls_scores(rfcn_cls_features, rois)
-
+        print('-------------cls')
+        print(rfcn_cls_score.shape)
         rfcn_reg_features = self.rfcn_reg_conv(features)
         rfcn_bbox_pred = self.rfcn_bbox_reg(rfcn_reg_features, rois)
-        
+        print('-----------bbox')
+        print(rfcn_bbox_pred.shape)
         boxes, soft_probs, labels = self.rfcn_proposal(
             rfcn_cls_score, rfcn_bbox_pred, rois,
         )
+        print(boxes.shape)
         return boxes, soft_probs, labels
 
 
@@ -531,13 +535,17 @@ class ObjectDetector(keras.Model):
         """
         # Shape: (n,cls+1)
         probs = tf.math.sigmoid(rfcn_cls_score)
+        print('---------proposal')
+        print(probs[:5])
 
         # probs to use for nms
         # Shape: (n,)
-        max_probs = tf.reduce_max(probs, axis=-1)
+        max_probs = tf.reduce_max(probs, axis=-1,keepdims=True)
         max_mask = tf.cast(probs==max_probs,tf.float32)
+        print(max_mask[:5])
         # Leave only maximum probs per block
         clean_probs = probs*max_mask
+        print(clean_probs[:5])
 
         box_labels = tf.argmax(probs,axis=-1)
 

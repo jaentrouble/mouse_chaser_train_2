@@ -357,7 +357,7 @@ def run_training(
     if class_names is None:
         num_classes = 1
     else:
-        num_classes = len(class_names)+1
+        num_classes = len(class_names)
     mymodel = ObjectDetector(
         backbone_f,
         intermediate_filters,
