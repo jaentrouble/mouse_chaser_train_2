@@ -115,15 +115,20 @@ class ObjectDetector(keras.Model):
         """
         TODO: Right now, it only suggests RoIs
         """
+        #-------DEBUG
+        image, gt = inputs
+        #---------------
         features = self.backbone_model(inputs, training=False)
         feature_map = self.inter_conv(features)
         cls_score = self.cls_conv(feature_map)
         bbox_reg = self.reg_conv(feature_map)
+        boxes, soft_probs = self.proposal(cls_score, bbox_reg)
         #------------DEBUG
-        bbox_reg = tf.zeros_like(bbox_reg)
+        _, boxes, _ = self.anchor_target(gt)
+        
 
 
-        return self.proposal(cls_score, bbox_reg)
+        return boxes,soft_probs
 
     def train_step(self, data):
         """
