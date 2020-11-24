@@ -116,7 +116,7 @@ class ObjectDetector(keras.Model):
         TODO: Right now, it only suggests RoIs
         """
         #-------DEBUG
-        gt = inputs
+        gt = inputs[0]
         #---------------
         # features = self.backbone_model(inputs, training=False)
         # feature_map = self.inter_conv(features)
