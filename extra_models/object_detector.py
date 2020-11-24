@@ -8,7 +8,8 @@ RPN_TRAIN_THRES = 0.5
 BATCH_SIZE = 128
 POSITIVE_RATIO = 0.5
 
-NMS_TOP_N = 2000
+NMS_TOP_N_RPN = 2000
+NMS_TOP_N_RFCN = 100
 NMS_THRES_RPN = 0.5
 NMS_THRES_RFCN = 0.5
 NMS_SCORE_THRES_RPN = 0.0
@@ -500,7 +501,7 @@ class ObjectDetector(keras.Model):
         indices, soft_probs = tf.image.non_max_suppression_with_scores(
             proposals,
             probs,
-            NMS_TOP_N,
+            NMS_TOP_N_RPN,
             iou_threshold=NMS_THRES_RPN,
             soft_nms_sigma=SOFT_SIGMA_RPN,
             score_threshold=NMS_SCORE_THRES_RPN,
@@ -557,7 +558,7 @@ class ObjectDetector(keras.Model):
             indices, soft_probs = tf.image.non_max_suppression_with_scores(
                 proposals,
                 clean_probs[:,i],
-                NMS_TOP_N,
+                NMS_TOP_N_RFCN,
                 iou_threshold=NMS_THRES_RFCN,
                 soft_nms_sigma=SOFT_SIGMA_RFCN,
                 score_threshold=NMS_SCORE_THRES_RFCN,
