@@ -125,7 +125,7 @@ class ObjectDetector(keras.Model):
         # boxes, soft_probs = self.proposal(cls_score, bbox_reg)
         #------------DEBUG
         _, boxes, _ = self.anchor_target(gt)
-        
+        soft_probs = tf.zeros(10)
 
 
         return boxes,soft_probs
