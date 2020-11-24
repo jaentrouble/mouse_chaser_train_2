@@ -65,6 +65,8 @@ load_model_path = args.load
 profile = args.profile
 # class_names = ['food']
 # bbox_sizes = [(25,25)]
+class_names = None
+bbox_sizes = None
 
 kwargs = {}
 kwargs['backbone_f'] = backbone_f
