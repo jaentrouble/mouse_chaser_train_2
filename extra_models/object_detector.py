@@ -114,7 +114,7 @@ class ObjectDetector(keras.Model):
         TODO: Right now, it only suggests RoIs
         """
         features = self.backbone_model(inputs)
-        feature_map = self.inter_conv(inputs)
+        feature_map = self.inter_conv(features)
         cls_score = self.cls_conv(feature_map)
         bbox_reg = self.reg_conv(feature_map)
 
@@ -251,6 +251,7 @@ class ObjectDetector(keras.Model):
         flattened_anchors = tf.reshape(self._all_anchors,(-1,4))
 
         proposals = self.bbox_delta_inv(flattened_anchors, deltas)
+        print(proposals[:2])
         proposals = tf.clip_by_value(proposals, 0, 1)
 
         indices, soft_probs = tf.image.non_max_suppression_with_scores(
@@ -560,6 +561,8 @@ class ObjectDetector(keras.Model):
         heights = boxes[...,3] - boxes[...,1] + g_height
         ctr_x = (boxes[...,0] + boxes[...,2])/2
         ctr_y = (boxes[...,1] + boxes[...,3])/2
+        print('----deltas')
+        print(deltas)
 
         dx = deltas[...,0]
         dy = deltas[...,1]

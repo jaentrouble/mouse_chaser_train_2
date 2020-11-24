@@ -181,7 +181,7 @@ class ValGenerator(AugGenerator):
     def __init__(self, data_dir, img_size, class_names=None, bbox_sizes=None):
         super().__init__(data_dir, img_size, class_names, bbox_sizes)
         self.aug = A.Compose([
-            A.Resize(img_size[0], img_size[1]),
+            A.Resize(img_size[1], img_size[0]),
         ],
         # (x1, y1, x2, y2) format, all normalized
         bbox_params=A.BboxParams(format='albumentations', 
@@ -274,7 +274,7 @@ class ValFigCallback(keras.callbacks.Callback):
         return image
 
     def val_result_fig(self):
-        samples = self.val_ds.take(4).as_numpy_iterator()
+        samples = ds.take(4).as_numpy_iterator()
         fig = plt.figure(figsize=(15,15))
         for i in range(4):
             sample = next(samples)
@@ -284,18 +284,18 @@ class ValFigCallback(keras.callbacks.Callback):
             gt_image = image[0].copy()
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
-            for roi in rois:
+            for roi in rois.numpy():
                 x1, y1, x2, y2 = (roi*np.array([w,h,w,h,])).astype(np.int64)
-                test_image[x1,y1:y2] = [255,0,0]
-                test_image[x2,y1:y2] = [255,0,0]
-                test_image[x1:x2,y1] = [255,0,0]
-                test_image[x1:x2,y2] = [255,0,0]
+                test_image[y1,x1:x2] = [0,1,0]
+                test_image[y2,x1:x2] = [0,1,0]
+                test_image[y1:y2,x1] = [0,1,0]
+                test_image[y1:y2,x2] = [0,1,0]
             for box in gt_box:
                 x1, y1, x2, y2 = (box*np.array([w,h,w,h,])).astype(np.int64)
-                gt_image[x1,y1:y2] = [255,0,0]
-                gt_image[x2,y1:y2] = [255,0,0]
-                gt_image[x1:x2,y1] = [255,0,0]
-                gt_image[x1:x2,y2] = [255,0,0]
+                gt_image[y1,x1:x2] = [1,0,0]
+                gt_image[y2,x1:x2] = [1,0,0]
+                gt_image[y1:y2,x1] = [1,0,0]
+                gt_image[y1:y2,x2] = [1,0,0]
 
             ax = fig.add_subplot(4,2,2*i+1)
             ax.imshow(gt_image)
