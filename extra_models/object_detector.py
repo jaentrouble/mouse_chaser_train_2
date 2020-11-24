@@ -257,7 +257,7 @@ class ObjectDetector(keras.Model):
         Returns
         -------
         scores:
-            Shape: (num_cls+1), 1 for background
+            Shape: (N,num_cls+1), 1 for background
         """
         f_height, f_width = tf.shape(features)[1:3]
         k = self.rfcn_window
@@ -266,30 +266,70 @@ class ObjectDetector(keras.Model):
 
         # Shape: (N,k,k,(cls+1)*k*k)
         pooled = self.roi_align(features, rois, k)
+        # Shape: (N,k*k,(cls+1)*k*k)
         flat_pooled = tf.reshape(pooled, [-1,k**2,(n_cls+1)*k*k])
 
-        axis1 = tf.tile(tf.range(k**2),[self.num_classes+1])
-        axis2 = tf.range(k*k*(self.num_classes+1))
+        axis1 = tf.tile(tf.range(k**2),[n_cls+1])
+        axis2 = tf.range(k*k*(n_cls+1))
         # Shape: (k*k*(cls+1),2)
         pool_idx = tf.stack([axis1,axis2],axis=1)
+        # Shape: (N,k*k*(cls+1),2)
         pool_idx = tf.tile(pool_idx[tf.newaxis,...],[n_rois,1,1])
 
-        # Shape: (k*k*(cls+1),)
+        # Shape: (N,k*k*(cls+1))
         pooled = tf.gather_nd(
             flat_pooled,
             pool_idx,
+            batch_dims=1,
         )
-        pooled_reshaped = tf.reshape(pooled,[(self.num_classes+1),k*k])
-        # Shape: (cls+1,)
-        scores = tf.reduce_mean(pooled_reshaped, axis=1)
+        pooled_reshaped = tf.reshape(pooled,[n_rois,(n_cls+1),k*k])
+        # Shape: (N,cls+1)
+        scores = tf.reduce_mean(pooled_reshaped, axis=-1)
         return scores
 
     def rfcn_bbox_reg(self, features, rois):
         """rfcn_bbox_reg
-        Average pool and return reg 
-        
-        """
+        Average pool and return bbox_reg
 
+        Parameters
+        ----------
+        features:
+            Feature map
+            Shape: (1,h,w,4*(k**2))
+        rois:
+            Shape: (N,4)
+
+        Returns
+        -------
+        bbox_reg:
+            Shape: (N,4)
+        """
+        f_height, f_width = tf.shape(features)[1:3]
+        k = self.rfcn_window
+        n_rois = tf.shape(rois)[0]
+
+        # Shape: (N,k,k,4*k*k)
+        pooled = self.roi_align(features, rois, k)
+        # Shape: (N,k*k,4*k*k)
+        flat_pooled = tf.reshape(pooled, [-1,k**2,4*k*k])
+
+        axis1 = tf.tile(tf.range(k**2),[4])
+        axis2 = tf.range(k*k*4)
+        # Shape: (k*k*4,2)
+        pool_idx = tf.stack([axis1,axis2],axis=1)
+        # Shape: (N,k*k*4,2)
+        pool_idx = tf.tile(pool_idx[tf.newaxis,...],[n_rois,1,1])
+
+        # Shape: (N,k*k*4)
+        pooled = tf.gather_nd(
+            flat_pooled,
+            pool_idx,
+            batch_dims=1,
+        )
+        pooled_reshaped = tf.reshape(pooled,[n_rois,4,k*k])
+        # Shape: (N,4)
+        bbox_reg = tf.reduce_mean(pooled_reshaped, axis=-1)
+        return bbox_reg
 
     def roi_align(self, features, rois, k):
         """roi_align
