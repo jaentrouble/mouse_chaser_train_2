@@ -130,7 +130,7 @@ class ObjectDetector(keras.Model):
             -1
         ))
         boxes = tf.gather_nd(
-            self._all_anchors,
+            tf.expand_dims(self._all_anchors,0),
             rpn_select,
         )
         soft_probs = tf.gather_nd(

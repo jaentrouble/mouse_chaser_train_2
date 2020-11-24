@@ -286,7 +286,6 @@ class ValFigCallback(keras.callbacks.Callback):
             # Shape: (k,4)
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
-            print(rois)
             for roi, p in zip(rois,probs):
                 if p > 0.5:
                     color = [0,1,0]
