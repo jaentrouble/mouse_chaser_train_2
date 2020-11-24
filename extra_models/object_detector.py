@@ -11,11 +11,13 @@ POSITIVE_RATIO = 0.5
 NMS_TOP_N = 2000
 NMS_THRES = 0.7
 SOFT_SIGMA = 1.0
+SMOOTH_L1_SIGMA = 1.0
 BG_RATIO = 0.75
 FG_THRES = 0.5
 BBOX_LOSS_GAMMA = 1
 # Crop and resize to (ALIGN_RES*k, ALIGN_RES*k)
 ALIGN_RES = 10
+OHEM_N = 100
 
 
 # NOTE: Here, 9 stands for anchor_set_num
@@ -81,7 +83,9 @@ class ObjectDetector(keras.Model):
         self.anchor_ratios = anchor_ratios
         self.anchor_scales = anchor_scales
         self.loss_tracker = keras.metrics.Mean(name='loss')
-        self.accuracy_metric = keras.metrics.BinaryAccuracy(name='accuracy')
+        self.rpn_loss_tracker = keras.metrics.Mean(name='rpn_loss')
+        self.rfcn_loss_tracker = keras.metrics.Mean(name='rfcn_loss')
+        self.accuracy_metric = keras.metrics.SparseCategoricalAccuracy(name='accuracy')
 
         image_w, image_h = image_size
         backbone_inputs = keras.Input((image_h,image_w,3))
@@ -89,14 +93,14 @@ class ObjectDetector(keras.Model):
         self.backbone_model = keras.Model(inputs=backbone_inputs,
                                         outputs=backbone_outputs,)
 
-        self.inter_conv = layers.Conv2D(
+        self.rpn_inter_conv = layers.Conv2D(
             self.intermediate_filters,
             self.kernel_size,
             strides=self.stride,
         )
 
         self.f_height, self.f_width = \
-            self.inter_conv(backbone_outputs).shape[1:3]
+            self.rpn_inter_conv(backbone_outputs).shape[1:3]
         # Shape: (h,w,9,4)
         self._all_anchors = self.generate_anchors_pre(self.f_height, self.f_width)
         # Shape: (num_inside,3), (num_inside,4)
@@ -105,12 +109,12 @@ class ObjectDetector(keras.Model):
         
         self.anchor_set_num = len(self.anchor_ratios)*len(self.anchor_scales)
 
-        self.cls_conv = layers.Conv2D(
+        self.rpn_cls_conv = layers.Conv2D(
             self.anchor_set_num,
             1,
             dtype=tf.float32,
         )
-        self.reg_conv = layers.Conv2D(
+        self.rpn_reg_conv = layers.Conv2D(
             4*self.anchor_set_num,
             1,
             dtype=tf.float32,
@@ -140,9 +144,9 @@ class ObjectDetector(keras.Model):
         #---------------
 
         features = self.backbone_model(inputs, training=training)
-        feature_map = self.inter_conv(features)
-        cls_score = self.cls_conv(feature_map)
-        bbox_reg = self.reg_conv(feature_map)
+        rpn_features = self.rpn_inter_conv(features)
+        cls_score = self.rpn_cls_conv(rpn_features)
+        bbox_reg = self.rpn_reg_conv(rpn_features)
         #-----------DEBUG
         # bbox_reg = tf.zeros_like(bbox_reg)
         #---------------------------------
@@ -171,22 +175,22 @@ class ObjectDetector(keras.Model):
         """
         Parameters
         ----------
-        data: (image, gt_boxes, classes)
+        data: (image, gt_boxes, gt_labels)
             image:
                 Shape: (1,H,W,3)
             gt_boxes:
                 Ground truth boxes
-            classes:
-                Ground truth classes of gt_boxes, in the same order
+            gt_labels:
+                Ground truth labels of gt_boxes, in the same order
         """
-        image, gt_boxes, classes = data
+        image, gt_boxes, gt_labels = data
         gt_boxes = gt_boxes[0]
-        classes = classes[0]
+        gt_labels = gt_labels[0]
 
         with tf.GradientTape() as tape:
             features = self.backbone_model(image, training=True)
             # Shape: (1,H,W,C)
-            feature_map = self.inter_conv(features)
+            rpn_features = self.rpn_inter_conv(features)
 
             rpn_labels, rpn_bbox_targets, rpn_bbox_mask = \
                 self.anchor_target(gt_boxes)
@@ -196,12 +200,12 @@ class ObjectDetector(keras.Model):
                 -1
             ))
                 
-            # Class loss
+            # RPN Class loss
             # Shape: (1, height, width, 9), Batch should be 1
-            cls_score = self.cls_conv(feature_map)
+            rpn_cls_score = self.rpn_cls_conv(rpn_features)
             # Shape: (num_not_-1,)
             rpn_selected_cls_score = tf.gather_nd(
-                cls_score,
+                rpn_cls_score,
                 rpn_select,
             )
             rpn_selected_labels = tf.gather_nd(
@@ -214,33 +218,82 @@ class ObjectDetector(keras.Model):
                 from_logits=True,
             ))
 
-            # Reg loss
-            bbox_pred = self.reg_conv(feature_map)
-            bbox_pred = tf.reshape(bbox_pred,[
-                tf.shape(bbox_pred)[0],
-                tf.shape(bbox_pred)[1],
-                tf.shape(bbox_pred)[2],
+            # RPN Reg loss
+            rpn_bbox_pred = self.rpn_reg_conv(rpn_features)
+            rpn_bbox_pred = tf.reshape(rpn_bbox_pred,[
+                tf.shape(rpn_bbox_pred)[0],
+                tf.shape(rpn_bbox_pred)[1],
+                tf.shape(rpn_bbox_pred)[2],
                 self.anchor_set_num,
                 4,
             ])
             rpn_bbox_loss = self.smooth_l1_loss(
-                bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
+                rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
             )
-            loss = rpn_cls_loss + BBOX_LOSS_GAMMA*rpn_bbox_loss
+            rpn_loss = rpn_cls_loss + BBOX_LOSS_GAMMA*rpn_bbox_loss
+
+            # RoI Proposal
+            rois, soft_probs = self.proposal(rpn_cls_score, rpn_bbox_pred)
+            rfcn_labels, rfcn_bbox_targets, rfcn_bbox_mask =\
+                self.proposal_target(rois, gt_boxes, gt_labels)
+
+            # R_FCN Class loss
+            rfcn_cls_features = self.rfcn_cls_conv(features)
+            # Shape: (N, cls+1)
+            rfcn_cls_score = self.rfcn_cls_scores(rfcn_cls_features, rois)
+            # Shape: (N,)
+            rfcn_all_cls_loss = tf.losses.sparse_categorical_crossentropy(
+                rfcn_labels,
+                rfcn_cls_score,
+                from_logits=True,
+            )
+            sorted_rfcn_cls_loss = tf.sort(
+                rfcn_all_cls_loss,
+                direction='DESCENDING'
+            )
+            rfcn_cls_loss = tf.reduce_mean(
+                sorted_rfcn_cls_loss[:OHEM_N]
+            )
+
+            # R_FCN Reg loss
+            rfcn_reg_features = self.rfcn_reg_conv(features)
+            rfcn_bbox_pred = self.rfcn_bbox_reg(
+                rfcn_reg_features,
+                rois
+            )
+            rfcn_all_bbox_loss = self.smooth_l1_loss(
+                rfcn_bbox_pred, rfcn_bbox_targets, rfcn_bbox_mask
+            )
+            sorted_rfcn_bbox_loss = tf.sort(
+                rfcn_all_bbox_loss,
+                direction='DESCENDING'
+            )
+            rfcn_bbox_loss = tf.reduce_mean(
+                sorted_rfcn_bbox_loss[:OHEM_N]
+            )
+
+            rfcn_loss = rfcn_cls_loss + BBOX_LOSS_GAMMA*rfcn_bbox_loss
+
+            loss = rpn_loss + rfcn_loss
 
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-
         self.loss_tracker.update_state(loss)
-        prob = tf.sigmoid(rpn_selected_cls_score)
-        self.accuracy_metric.update_state(rpn_selected_labels, prob)
+        self.rpn_loss_tracker.update_state(rpn_loss)
+        self.rfcn_loss_tracker.update_state(rfcn_loss)
+        self.accuracy_metric.update_state(rfcn_labels, rfcn_cls_score)
         return {'loss': self.loss_tracker.result(),
+                'rpn_loss': self.rpn_loss_tracker.result(),
+                'rfcn_loss': self.rfcn_loss_tracker.result(),
                 'accuracy': self.accuracy_metric.result()}
     
     @property
     def metrics(self):
-        return [self.loss_tracker, self.accuracy_metric]
+        return [self.loss_tracker, 
+                self.accuracy_metric,
+                self.rpn_loss_tracker,
+                self.rfcn_loss_tracker,]
 
     def rfcn_cls_scores(self, features, rois):
         """rfcn_cls_pooling
@@ -361,7 +414,8 @@ class ObjectDetector(keras.Model):
         return pooled
         
 
-    def smooth_l1_loss(self, bbox_pred, bbox_targets, bbox_mask, sigma=1.0):
+    def smooth_l1_loss(self, bbox_pred, bbox_targets, bbox_mask, 
+                       sigma=SMOOTH_L1_SIGMA):
         """smooth_l1_loss
         Let x be target-pred
         if abs(x) < 1: 0.5*x**2
@@ -370,10 +424,10 @@ class ObjectDetector(keras.Model):
         Parameters
         ----------
         bbox_pred, bbox_targets: tf.Tensor
-            Shape: (1, height, width, 9, 4)
+            Shape: (..., 4)
             Order does not matter
         bbox_mask: tf.Tensor
-            Shape: (1, height, width, 9, 1)
+            Shape: (..., 1)
             Will be multiplied to loss
         sigma: float
             How steep L2 part is.
@@ -433,7 +487,7 @@ class ObjectDetector(keras.Model):
         # soft_probs = probs
         return boxes, soft_probs
 
-    def proposal_target(self, rois, scores, gt_boxes, gt_labels):
+    def proposal_target(self, rois, gt_boxes, gt_labels):
         """
         Assign target gt_box and labels to rois
         
@@ -441,12 +495,19 @@ class ObjectDetector(keras.Model):
         ----------
         rois:
             Shape: (M, 4)
-        scores:
-            Shape: (M,)
         gt_boxes:
             Shape: (k, 4)
         gt_labels:
             Shape: (k,)
+
+        Returns
+        -------
+        rfcn_labels:
+            Shape: (M,)
+        rfcn_bbox_targets:
+            Shape: (M,4)
+        rfcn_bbox_mask:
+            Shape: (M,)
         """
 
         # Sample rois
