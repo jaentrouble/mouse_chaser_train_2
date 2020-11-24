@@ -12,6 +12,7 @@ NMS_TOP_N = 2000
 NMS_THRES = 0.7
 SOFT_SIGMA = 0.5
 BG_RATIO = 0.75
+FG_THRES = 0.5
 BBOX_LOSS_GAMMA = 1
 
 
@@ -41,6 +42,7 @@ class ObjectDetector(keras.Model):
         stride,
         image_size,
         num_classes,
+        rfcn_window=3,
         anchor_ratios=[0.5,1.0,2.0], 
         anchor_scales=[0.2,0.4,0.7]
     ):
@@ -59,6 +61,8 @@ class ObjectDetector(keras.Model):
             (WIDTH, HEIGHT) of the original input image
         num_classes: int
             Number of object classes
+        rfcn_window: int
+            R-FCN pooling window's size (k)
         anchor_ratios: list
             list of anchor shapes (width/height)
         anchor_scales: list
@@ -71,6 +75,7 @@ class ObjectDetector(keras.Model):
         self.stride = stride
         self.image_size = image_size
         self.num_classes = num_classes
+        self.rfcn_window = rfcn_window
         self.anchor_ratios = anchor_ratios
         self.anchor_scales = anchor_scales
         self.loss_tracker = keras.metrics.Mean(name='loss')
@@ -106,6 +111,19 @@ class ObjectDetector(keras.Model):
         self.reg_conv = layers.Conv2D(
             4*self.anchor_set_num,
             1,
+            dtype=tf.float32,
+        )
+
+        self.rfcn_cls_conv = layers.Conv2D(
+            (self.rfcn_window**2)*(self.num_classes+1),
+            3,
+            padding='same',
+            dtype=tf.float32,
+        )
+        self.rfcn_reg_conv = layers.Conv2D(
+            (self.rfcn_window**2)*4,
+            3,
+            padding='same',
             dtype=tf.float32,
         )
 
@@ -311,7 +329,44 @@ class ObjectDetector(keras.Model):
         gt_labels:
             Shape: (k,)
         """
-        raise NotImplementedError
+
+        # Sample rois
+        # Shape: (M,k)
+        iou = self.iou(rois[:,tf.newaxis,:],gt_boxes)
+        # Shape: (M,)
+        argmax_iou = tf.argmax(iou, axis=1)
+        # Shape: (M,)
+        max_iou = tf.max(iou, axis=1)
+        # Shape: (M,)
+        cls_labels = tf.gather(
+            gt_labels, 
+            argmax_iou,
+        )
+
+        # Shape: (bg_num,1)
+        bg_idx = tf.where(max_iou<FG_THRES)
+        # Assign background the last label
+        rfcn_labels = tf.tensor_scatter_nd_update(
+            cls_labels,
+            bg_idx,
+            tf.ones(tf.shape(bg_idx)[0])*self.num_classes,
+        )
+
+        # Shape: (M, 4)
+        gt_targets = tf.gather(
+            gt_boxes,
+            argmax_iou,
+        )
+        rfcn_bbox_targets = self.bbox_delta_transform(
+            rois,
+            gt_targets,
+        )
+        rfcn_bbox_mask = tf.cast(rfcn_labels<self.num_classes, tf.float32)
+
+        return rfcn_labels, rfcn_bbox_targets, rfcn_bbox_mask
+
+
+
 
 
 
@@ -626,5 +681,6 @@ class ObjectDetector(keras.Model):
         config['anchor_ratios'] = self.anchor_ratios
         config['anchor_scales'] = self.anchor_scales
         config['num_classes'] = self.num_classes
+        config['rfcn_window'] = self.rfcn_window
 
         return config

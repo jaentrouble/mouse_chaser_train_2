@@ -163,7 +163,7 @@ class AugGenerator():
         t_box = np.array(distorted['bboxes'], dtype=np.float32)
         t_labels = np.array([
             self.class_names.index(cname) for cname in distorted['bbox_labels']
-        ])
+        ], dtype=np.float32)
         t_image = (distorted['image']/255).astype(np.float32)
 
         # Just in case there's no box left, retry
