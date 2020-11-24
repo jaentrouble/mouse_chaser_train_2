@@ -260,15 +260,18 @@ class ObjectDetector(keras.Model):
         proposals = self.bbox_delta_inv(flattened_anchors, deltas)
         proposals = tf.clip_by_value(proposals, 0, 1)
 
-        indices, soft_probs = tf.image.non_max_suppression_with_scores(
-            proposals,
-            probs,
-            NMS_TOP_N,
-            iou_threshold=NMS_THRES,
-            soft_nms_sigma=SOFT_SIGMA,
-        )
+        #-------------DEBUG
+        # indices, soft_probs = tf.image.non_max_suppression_with_scores(
+        #     proposals,
+        #     probs,
+        #     NMS_TOP_N,
+        #     iou_threshold=NMS_THRES,
+        #     soft_nms_sigma=SOFT_SIGMA,
+        # )
 
-        boxes = tf.gather(proposals, indices)
+        # boxes = tf.gather(proposals, indices)
+        boxes = proposals
+        soft_probs = probs
         return boxes, soft_probs
 
     def proposal_target(self, rois, scores, gt_boxes, gt_labels):
