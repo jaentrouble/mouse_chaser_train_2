@@ -139,9 +139,6 @@ class ObjectDetector(keras.Model):
         
 
     def call(self, inputs, training=False):
-        """
-        TODO: Right now, it only suggests RoIs
-        """
         #-------DEBUG
         # gt = inputs[0]
         #---------------
