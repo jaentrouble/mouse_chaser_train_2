@@ -357,7 +357,7 @@ def run_training(
     if class_names is None:
         num_classes = 1
     else:
-        num_classes = len(class_names)
+        num_classes = len(class_names)+1
     mymodel = ObjectDetector(
         backbone_f,
         intermediate_filters,
@@ -467,7 +467,7 @@ if __name__ == '__main__':
         16,
         8,
         img_size,
-        3,
+        2,
     )
     mymodel.load_weights('savedmodels/hr538_m_f2/91')
     mymodel.compile(optimizer='adam',run_eagerly=True)

@@ -83,6 +83,8 @@ class ObjectDetector(keras.Model):
         self.stride = stride
         self.image_size = image_size
         self.num_classes = num_classes
+        print('--------num_classes')
+        print(num_classes)
         self.rfcn_window = rfcn_window
         self.anchor_ratios = anchor_ratios
         self.anchor_scales = anchor_scales
