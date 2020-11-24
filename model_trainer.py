@@ -284,14 +284,14 @@ class ValFigCallback(keras.callbacks.Callback):
             gt_image = image[0].copy()
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
-            for roi in rois.numpy():
-                x1, y1, x2, y2 = (roi*np.array([w,h,w,h,])).astype(np.int64)
+            for roi in rois:
+                x1, y1, x2, y2 = tf.cast(roi*[w,h,w,h,],tf.int64)
                 test_image[y1,x1:x2] = [0,1,0]
                 test_image[y2,x1:x2] = [0,1,0]
                 test_image[y1:y2,x1] = [0,1,0]
                 test_image[y1:y2,x2] = [0,1,0]
             for box in gt_box:
-                x1, y1, x2, y2 = (box*np.array([w,h,w,h,])).astype(np.int64)
+                x1, y1, x2, y2 = tf.cast(box*[w,h,w,h],tf.int64)
                 gt_image[y1,x1:x2] = [1,0,0]
                 gt_image[y2,x1:x2] = [1,0,0]
                 gt_image[y1:y2,x1] = [1,0,0]
@@ -432,16 +432,16 @@ def run_training(
 
 
 if __name__ == '__main__':
-    gpus = tf.config.experimental.list_physical_devices('GPU')
-    if gpus:
-        try:
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-        except RuntimeError as e:
-            print(e)
-    policy = mixed_precision.Policy('mixed_float16')
-    mixed_precision.set_global_policy(policy)
-    # tf.config.set_visible_devices([],'GPU')
+    # gpus = tf.config.experimental.list_physical_devices('GPU')
+    # if gpus:
+    #     try:
+    #         for gpu in gpus:
+    #             tf.config.experimental.set_memory_growth(gpu, True)
+    #     except RuntimeError as e:
+    #         print(e)
+    # policy = mixed_precision.Policy('mixed_float16')
+    # mixed_precision.set_global_policy(policy)
+    tf.config.set_visible_devices([],'GPU')
     img_size = (640,480)
     mymodel = ObjectDetector(
         'hr_5_3_8',
@@ -451,12 +451,13 @@ if __name__ == '__main__':
         img_size,
         3,
     )
-    mymodel.compile(optimizer='adam')
+    mymodel.load_weights('savedmodels/hr538_m_f1/92')
+    mymodel.compile(optimizer='adam',run_eagerly=True)
 
     ds = create_train_dataset(
-        'data',
+        'data/save',
         img_size,
         ['food'],
         [(20,20)],
     )
-    mymodel.fit(ds,steps_per_epoch=100)
+    mymodel.fit(ds,steps_per_epoch=2)

@@ -251,7 +251,6 @@ class ObjectDetector(keras.Model):
         flattened_anchors = tf.reshape(self._all_anchors,(-1,4))
 
         proposals = self.bbox_delta_inv(flattened_anchors, deltas)
-        print(proposals[:2])
         proposals = tf.clip_by_value(proposals, 0, 1)
 
         indices, soft_probs = tf.image.non_max_suppression_with_scores(
@@ -389,6 +388,7 @@ class ObjectDetector(keras.Model):
         gt_boxes_exp = tf.expand_dims(gt_boxes,0)
         # Shape: (num_inside, k)
         iou = self.iou(i_anch_exp, gt_boxes_exp)
+        print(iou)
         # Shape: (num_inside,)
         argmax_iou = tf.argmax(iou, axis=1)
         max_iou = tf.reduce_max(iou, axis=1)
@@ -561,8 +561,6 @@ class ObjectDetector(keras.Model):
         heights = boxes[...,3] - boxes[...,1] + g_height
         ctr_x = (boxes[...,0] + boxes[...,2])/2
         ctr_y = (boxes[...,1] + boxes[...,3])/2
-        print('----deltas')
-        print(deltas)
 
         dx = deltas[...,0]
         dy = deltas[...,1]
