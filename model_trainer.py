@@ -252,12 +252,10 @@ def create_train_dataset(
 #     return test_model
 
 class ValFigCallback(keras.callbacks.Callback):
-    def __init__(self, val_ds, logdir, class_labels):
+    def __init__(self, val_ds, logdir):
         super().__init__()
         self.val_ds = val_ds
         self.filewriter = tf.summary.create_file_writer(logdir+'/val_image')
-        self.class_labels = class_labels
-        self.class_num = len(class_labels)
 
     def plot_to_image(self, figure):
         """Converts the matplotlib plot specified by 'figure' to a PNG image and
@@ -280,17 +278,29 @@ class ValFigCallback(keras.callbacks.Callback):
         fig = plt.figure(figsize=(15,15))
         for i in range(4):
             sample = next(samples)
-            sample_x = sample[0]
-            predict = self.model(sample_x, training=False)
-            for j, cname in enumerate(self.class_labels):
-                sample_y = sample[1][cname][0]
-                ax = fig.add_subplot(8,self.class_num,2*self.class_num*i+j+1)
-                ax.imshow(sample_x[0], alpha=0.5)
-                ax.imshow(sample_y,alpha=0.5)
-                ax = fig.add_subplot(8,self.class_num,
-                                     2*self.class_num*i+j+self.class_num+1)
-                ax.imshow(sample_x[0], alpha=0.5)
-                ax.imshow(predict[cname][0],alpha=0.5)
+            image, gt_box, _ = sample
+            rois, probs = self.model(image, training=False)
+            test_image = image[0].copy()
+            gt_image = image[0].copy()
+            gt_box = gt_box[0]
+            h,w = np.subtract(gt_image.shape[:2],1)
+            for roi in rois:
+                x1, y1, x2, y2 = (roi*np.array([w,h,w,h,])).astype(np.int64)
+                test_image[x1,y1:y2] = [255,0,0]
+                test_image[x2,y1:y2] = [255,0,0]
+                test_image[x1:x2,y1] = [255,0,0]
+                test_image[x1:x2,y2] = [255,0,0]
+            for box in gt_box:
+                x1, y1, x2, y2 = (box*np.array([w,h,w,h,])).astype(np.int64)
+                gt_image[x1,y1:y2] = [255,0,0]
+                gt_image[x2,y1:y2] = [255,0,0]
+                gt_image[x1:x2,y1] = [255,0,0]
+                gt_image[x1:x2,y2] = [255,0,0]
+
+            ax = fig.add_subplot(4,2,2*i+1)
+            ax.imshow(gt_image)
+            ax = fig.add_subplot(4,2,2*i+2)
+            ax.imshow(test_image)
 
         return fig
 
@@ -385,16 +395,16 @@ def run_training(
         bbox_sizes,
         buffer_size=1000,
     )
-    # val_ds = create_train_dataset(
-    #     val_dir,
-    #     img_size,
-    #     class_names,
-    #     bbox_sizes,
-    #     buffer_size=100,
-    #     val_data=True,
-    # )
+    val_ds = create_train_dataset(
+        val_dir,
+        img_size,
+        class_names,
+        bbox_sizes,
+        buffer_size=100,
+        val_data=True,
+    )
 
-    # image_callback = ValFigCallback(val_ds, logdir, class_labels)
+    image_callback = ValFigCallback(val_ds, logdir)
 
     mymodel.fit(
         x=train_ds,
