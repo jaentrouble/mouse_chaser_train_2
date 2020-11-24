@@ -323,6 +323,8 @@ def run_training(
         intermediate_filters,
         kernel_size,
         stride,
+        anchor_ratios,
+        anchor_scales,
         class_names, 
         bbox_sizes,
         train_dir,
@@ -355,7 +357,9 @@ def run_training(
         kernel_size,
         stride,
         img_size,
-        num_classes
+        num_classes,
+        anchor_ratios,
+        anchor_scales
     )
     if load_model_path:
         mymodel.load_weights(load_model_path)
