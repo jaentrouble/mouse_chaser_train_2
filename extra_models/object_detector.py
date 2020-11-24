@@ -297,7 +297,9 @@ class ObjectDetector(keras.Model):
         self.rpn_loss_tracker.update_state(rpn_loss)
         self.rfcn_loss_tracker.update_state(rfcn_loss)
         # Only count non-backgrounds
-        positive_idx = tf.where(tf.argmax(pos_scores,axis=-1)!=self.num_classes)
+        positive_idx = tf.where(
+            tf.argmax(rfcn_cls_score,axis=-1)!=self.num_classes
+        )
         pos_labels = tf.gather(rfcn_labels, positive_idx)
         pos_scores = tf.gather(rfcn_cls_score, positive_idx)
         self.accuracy_metric.update_state(pos_labels, pos_scores)
