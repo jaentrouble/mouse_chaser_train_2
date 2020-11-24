@@ -151,7 +151,7 @@ class ObjectDetector(keras.Model):
         # bbox_reg = tf.zeros_like(bbox_reg)
         #---------------------------------
 
-        rois, soft_probs = self.rpn_proposal(cls_score, bbox_reg)
+        rois, rpn_soft_probs = self.rpn_proposal(cls_score, bbox_reg)
 
         #------------DEBUG
         # rpn_labels, boxes, _ = self.anchor_target(gt)
@@ -175,8 +175,10 @@ class ObjectDetector(keras.Model):
         boxes, soft_probs, labels = self.rfcn_proposal(
             rfcn_cls_score, rfcn_bbox_pred, rois,
         )
-        return boxes, soft_probs, labels
 
+        return boxes, soft_probs, labels
+        #---------------DEBUG
+        # return rois, rpn_soft_probs
 
     def train_step(self, data):
         """
