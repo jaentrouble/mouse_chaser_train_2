@@ -14,6 +14,8 @@ SOFT_SIGMA = 0.5
 BG_RATIO = 0.75
 FG_THRES = 0.5
 BBOX_LOSS_GAMMA = 1
+# Crop and resize to (ALIGN_RES*k, ALIGN_RES*k)
+ALIGN_RES = 10
 
 
 # NOTE: Here, 9 stands for anchor_set_num
@@ -129,7 +131,7 @@ class ObjectDetector(keras.Model):
 
         
 
-    def call(self, inputs, training=None):
+    def call(self, inputs, training=False):
         """
         TODO: Right now, it only suggests RoIs
         """
@@ -137,7 +139,7 @@ class ObjectDetector(keras.Model):
         # gt = inputs[0]
         #---------------
 
-        features = self.backbone_model(inputs, training=True)
+        features = self.backbone_model(inputs, training=training)
         feature_map = self.inter_conv(features)
         cls_score = self.cls_conv(feature_map)
         bbox_reg = self.reg_conv(feature_map)
@@ -240,7 +242,29 @@ class ObjectDetector(keras.Model):
     def metrics(self):
         return [self.loss_tracker, self.accuracy_metric]
 
+    def roi_align(self, features, rois):
+        """rfcn_cls_pooling
+        Average pool and retun class scores (in logit)
 
+        Parameters
+        ----------
+        features:
+            Feature map
+            Shape: (1,h,w,(cls+1)*(k**2))
+        """
+        f_height, f_width = tf.shape(features)[1:3]
+        k = self.rfcn_window
+
+        cropped = tf.image.crop_and_resize(
+            features,
+            rois[...,::-1],
+            tf.zeros([tf.shape(rois)[0]],dtype=tf.int32),
+            [ALIGN_RES*k, ALIGN_RES*k],
+        )
+        pooled = tf.nn.avg_pool2d(cropped,ALIGN_RES,ALIGN_RES,'SAME')
+        flat_pooled = tf.reshape(pooled, [k*k,-1])
+
+        
 
     def smooth_l1_loss(self, bbox_pred, bbox_targets, bbox_mask, sigma=1.0):
         """smooth_l1_loss
@@ -364,10 +388,6 @@ class ObjectDetector(keras.Model):
         rfcn_bbox_mask = tf.cast(rfcn_labels<self.num_classes, tf.float32)
 
         return rfcn_labels, rfcn_bbox_targets, rfcn_bbox_mask
-
-
-
-
 
 
     def iou(self, bbox1, bbox2):
