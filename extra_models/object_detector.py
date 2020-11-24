@@ -327,7 +327,8 @@ class ObjectDetector(keras.Model):
         scores:
             Shape: (N,num_cls+1), 1 for background
         """
-        f_height, f_width = tf.shape(features)[1:3]
+        f_height = tf.shape(features)[1]
+        f_width = tf.shape(features)[2]
         k = self.rfcn_window
         n_cls = self.num_classes
         n_rois = tf.shape(rois)[0]
