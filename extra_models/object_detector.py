@@ -288,7 +288,7 @@ class ObjectDetector(keras.Model):
             NMS_TOP_N,
             iou_threshold=NMS_THRES,
             soft_nms_sigma=SOFT_SIGMA,
-            # score_threshold=0.5,
+            score_threshold=0.5,
         )
 
         boxes = tf.gather(proposals, indices)
