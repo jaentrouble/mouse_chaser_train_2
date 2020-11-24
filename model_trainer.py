@@ -287,12 +287,12 @@ class ValFigCallback(keras.callbacks.Callback):
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
             for roi, p in zip(rois, probs):
-                if p > 0.5:
-                    x1, y1, x2, y2 = np.multiply(roi,[w,h,w,h,]).astype(np.int64)
-                    test_image[y1,x1:x2] = [0,1,0]
-                    test_image[y2,x1:x2] = [0,1,0]
-                    test_image[y1:y2,x1] = [0,1,0]
-                    test_image[y1:y2,x2] = [0,1,0]
+                # if p > 0.5:
+                x1, y1, x2, y2 = np.multiply(roi,[w,h,w,h,]).astype(np.int64)
+                test_image[y1,x1:x2] = [0,1,0]
+                test_image[y2,x1:x2] = [0,1,0]
+                test_image[y1:y2,x1] = [0,1,0]
+                test_image[y1:y2,x2] = [0,1,0]
             for box in gt_box:
                 x1, y1, x2, y2 = np.multiply(box,[w,h,w,h,]).astype(np.int64)
                 gt_image[y1,x1:x2] = [1,0,0]
