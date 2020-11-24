@@ -124,8 +124,15 @@ class ObjectDetector(keras.Model):
         # bbox_reg = self.reg_conv(feature_map)
         # boxes, soft_probs = self.proposal(cls_score, bbox_reg)
         #------------DEBUG
-        _, boxes, _ = self.anchor_target(gt)
-        boxes = tf.reshape(boxes,(-1,4))
+        rpn_labels, boxes, _ = self.anchor_target(gt)
+        rpn_select = tf.where(tf.not_equal(
+            rpn_labels,
+            -1
+        ))
+        boxes = tf.gather_nd(
+            boxes,
+            rpn_select,
+        )
         soft_probs = tf.zeros(10)
 
 
