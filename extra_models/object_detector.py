@@ -12,6 +12,7 @@ NMS_TOP_N = 2000
 NMS_THRES = 0.7
 SOFT_SIGMA = 0.5
 BG_RATIO = 0.75
+BBOX_LOSS_GAMMA = 0
 
 
 # NOTE: Here, 9 stands for anchor_set_num
@@ -180,7 +181,7 @@ class ObjectDetector(keras.Model):
             rpn_bbox_loss = self.smooth_l1_loss(
                 bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
             )
-            loss = rpn_cls_loss + rpn_bbox_loss
+            loss = rpn_cls_loss + BBOX_LOSS_GAMMA*rpn_bbox_loss
 
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
