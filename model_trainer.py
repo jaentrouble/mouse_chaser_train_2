@@ -256,6 +256,12 @@ class ValFigCallback(keras.callbacks.Callback):
         super().__init__()
         self.val_ds = val_ds
         self.filewriter = tf.summary.create_file_writer(logdir+'/val_image')
+        self.colors=np.array([
+            [1,0,0],
+            [0,1,0],
+            [1,1,0],
+            [0,1,1],
+        ])
 
     def plot_to_image(self, figure):
         """Converts the matplotlib plot specified by 'figure' to a PNG image and
@@ -280,14 +286,14 @@ class ValFigCallback(keras.callbacks.Callback):
             sample = next(samples)
             image, gt_box, _ = sample
             # Shape: (n,4), (n,)
-            rois, probs = self.model(image, training=True)
+            boxes, probs, labels = self.model(image, training=True)
             test_image = image[0].copy()
             gt_image = image[0].copy()
             # Shape: (k,4)
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
-            for roi, p in zip(rois,probs):
-                color = np.clip([4*(1-p),4*(p-0.5),0],0,1)
+            for roi, p, l in zip(rois,probs, labels):
+                color = self.colors[l] * p
                 x1, y1, x2, y2 = np.multiply(roi,[w,h,w,h,]).astype(np.int64)
                 test_image[y1,x1:x2] = color
                 test_image[y2,x1:x2] = color
