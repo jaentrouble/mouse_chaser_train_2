@@ -8,9 +8,11 @@ from extra_models import backbone_models
 RPN_TRAIN_THRES = 0.5
 BATCH_SIZE = 128
 POSITIVE_RATIO = 0.5
+
 NMS_TOP_N = 2000
 NMS_THRES = 0.7
 SOFT_SIGMA = 1.0
+
 SMOOTH_L1_SIGMA = 1.0
 BG_RATIO = 0.75
 FG_THRES = 0.5
@@ -151,7 +153,7 @@ class ObjectDetector(keras.Model):
         # bbox_reg = tf.zeros_like(bbox_reg)
         #---------------------------------
 
-        boxes, soft_probs = self.proposal(cls_score, bbox_reg)
+        rois, soft_probs = self.rpn_proposal(cls_score, bbox_reg)
 
         #------------DEBUG
         # rpn_labels, boxes, _ = self.anchor_target(gt)
@@ -168,8 +170,18 @@ class ObjectDetector(keras.Model):
         #     rpn_select,
         # )
         #----------------------------------------------------
+        
+        rfcn_cls_features = self.rfcn_cls_conv(features)
+        rfcn_cls_score = self.rfcn_cls_scores(rfcn_cls_features, rois)
 
-        return boxes,soft_probs
+        rfcn_reg_features = self.rfcn_reg_conv(features)
+        rfcn_bbox_pred = self.rfcn_bbox_reg(rfcn_reg_features, rois)
+        
+        boxes, soft_probs, labels = self.rfcn_proposal(
+            rfcn_cls_score, rfcn_bbox_pred, rois,
+        )
+        return boxes, soft_probs, labels
+
 
     def train_step(self, data):
         """
@@ -230,10 +242,11 @@ class ObjectDetector(keras.Model):
             rpn_bbox_loss = self.smooth_l1_loss(
                 rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
             )
+            rpn_bbox_loss = tf.reduce_sum(rpn_bbox_loss)
             rpn_loss = rpn_cls_loss + BBOX_LOSS_GAMMA*rpn_bbox_loss
 
             # RoI Proposal
-            rois, soft_probs = self.proposal(rpn_cls_score, rpn_bbox_pred)
+            rois, soft_probs = self.rpn_proposal(rpn_cls_score, rpn_bbox_pred)
             rfcn_labels, rfcn_bbox_targets, rfcn_bbox_mask =\
                 self.proposal_target(rois, gt_boxes, gt_labels)
 
@@ -261,14 +274,16 @@ class ObjectDetector(keras.Model):
                 rfcn_reg_features,
                 rois
             )
+            rfcn_bbox_mask = rfcn_bbox_mask[...,tf.newaxis]
             rfcn_all_bbox_loss = self.smooth_l1_loss(
                 rfcn_bbox_pred, rfcn_bbox_targets, rfcn_bbox_mask
             )
+
             sorted_rfcn_bbox_loss = tf.sort(
                 rfcn_all_bbox_loss,
                 direction='DESCENDING'
             )
-            rfcn_bbox_loss = tf.reduce_mean(
+            rfcn_bbox_loss = tf.reduce_sum(
                 sorted_rfcn_bbox_loss[:OHEM_N]
             )
 
@@ -421,6 +436,8 @@ class ObjectDetector(keras.Model):
         if abs(x) < 1: 0.5*x**2
         else: abs(x) - 0.5
 
+        Reduces final axis
+
         Parameters
         ----------
         bbox_pred, bbox_targets: tf.Tensor
@@ -440,10 +457,10 @@ class ObjectDetector(keras.Model):
         smooth_sign = tf.cast(abs_box_diff<(1/sigma_2),tf.float32)
         box_loss = (abs_box_diff**2)*(sigma_2/2)*smooth_sign \
                    + (abs_box_diff - (0.5/sigma_2))*(1-smooth_sign)
-        box_loss = tf.reduce_sum(box_loss) / tf.reduce_sum(bbox_mask)
+        box_loss = tf.reduce_sum(box_loss,axis=-1) / (tf.reduce_sum(bbox_mask)+1)
         return box_loss
 
-    def proposal(self, rpn_cls_score, rpn_bbox_pred):
+    def rpn_proposal(self, rpn_cls_score, rpn_bbox_pred):
         """
         Parameters
         ----------
@@ -487,6 +504,68 @@ class ObjectDetector(keras.Model):
         # soft_probs = probs
         return boxes, soft_probs
 
+    def rfcn_proposal(self, rfcn_cls_score, rfcn_bbox_pred, rois):
+        """
+        Parameters
+        ----------
+        rfcn_cls_score: tf.Tensor
+            Expects logit; sigmoid is done here
+            Shape: (n,num_cls+1)
+        rfcn_bbox_pred: tf.Tensor
+            Shape: (n,4)
+
+        Returns
+        -------
+        boxes: tf.Tensor
+            Proposed maximum N boxes
+            Shape: (M, 4) where M<=N
+        soft_probs: tf.Tensor
+            Softened scores
+            Shape: (M,)
+        labels:
+            Predicted labels per boxes
+        """
+        # Shape: (n,cls+1)
+        probs = tf.math.sigmoid(rfcn_cls_score)
+
+        # probs to use for nms
+        # Shape: (n,)
+        max_probs = tf.reduce_max(probs, axis=-1)
+        max_mask = tf.cast(probs==max_probs,tf.float32)
+        # Leave only maximum probs per block
+        clean_probs = probs*max_mask
+
+        box_labels = tf.argmax(probs,axis=-1)
+
+        deltas = rfcn_bbox_pred
+        proposals = self.bbox_delta_inv(rois, deltas)
+        proposals = tf.clip_by_value(proposals,0,1)
+
+        box_outputs = []
+        soft_probs_outputs = []
+        class_outputs = []
+        
+        # Do not collect backgrounds
+        for i in range(self.num_classes):
+            indices, soft_probs = tf.image.non_max_suppression_with_scores(
+                proposals,
+                clean_probs[:,i],
+                NMS_TOP_N,
+                iou_threshold=NMS_THRES,
+                soft_nms_sigma=SOFT_SIGMA,
+                score_threshold=0.5,
+            )
+            box_outputs.append(tf.gather(proposals, indices))
+            soft_probs_outputs.append(soft_probs)
+            class_outputs.append(tf.gather(box_labels,indices))
+        
+        final_boxes = tf.concat(box_outputs,axis=0)
+        final_soft_probs = tf.concat(soft_probs_outputs,axis=0)
+        final_labels = tf.concat(class_outputs,axis=0)
+
+        return final_boxes, final_soft_probs, final_labels
+
+
     def proposal_target(self, rois, gt_boxes, gt_labels):
         """
         Assign target gt_box and labels to rois
@@ -516,7 +595,7 @@ class ObjectDetector(keras.Model):
         # Shape: (M,)
         argmax_iou = tf.argmax(iou, axis=1)
         # Shape: (M,)
-        max_iou = tf.max(iou, axis=1)
+        max_iou = tf.reduce_max(iou, axis=1)
         # Shape: (M,)
         cls_labels = tf.gather(
             gt_labels, 
