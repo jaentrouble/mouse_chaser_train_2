@@ -479,7 +479,9 @@ class ObjectDetector(keras.Model):
         smooth_sign = tf.cast(abs_box_diff<(1/sigma_2),tf.float32)
         box_loss = (abs_box_diff**2)*(sigma_2/2)*smooth_sign \
                    + (abs_box_diff - (0.5/sigma_2))*(1-smooth_sign)
-        box_loss = tf.reduce_sum(box_loss,axis=-1) / (tf.reduce_sum(bbox_mask)+1)
+        box_loss = tf.math.divide_no_nan(
+            tf.reduce_sum(box_loss,axis=-1),tf.reduce_sum(bbox_mask)
+        )
         return box_loss
 
     def rpn_proposal(self, rpn_cls_score, rpn_bbox_pred):
