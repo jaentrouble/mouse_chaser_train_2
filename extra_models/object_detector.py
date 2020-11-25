@@ -17,6 +17,9 @@ NMS_SCORE_THRES_RFCN = 0.5
 SOFT_SIGMA_RPN = 0.0
 SOFT_SIGMA_RFCN = 1.0
 
+RPN_LOSS_GAMMA = 1.0
+RFCN_LOSS_GAMMA = 1.0
+
 SMOOTH_L1_SIGMA = 1.0
 BG_RATIO = 0.75
 FG_THRES = 0.5
@@ -289,7 +292,7 @@ class ObjectDetector(keras.Model):
 
             rfcn_loss = rfcn_cls_loss + BBOX_LOSS_GAMMA*rfcn_bbox_loss
 
-            loss = rpn_loss + rfcn_loss
+            loss = RPN_LOSS_GAMMA * rpn_loss + RFCN_LOSS_GAMMA * rfcn_loss
 
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
