@@ -234,22 +234,6 @@ def create_train_dataset(
     return dataset
 
 
-# def get_model(model_f, img_size):
-#     """
-#     To get model only and load weights.
-#     """
-#     # policy = mixed_precision.Policy('mixed_float16')
-#     # mixed_precision.set_policy(policy)
-#     inputs = keras.Input((img_size[0],img_size[1],3))
-#     test_model = ClassifierModel(inputs, model_f)
-#     test_model.compile(
-#         optimizer='adam',
-#         loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-#         metrics=[
-#             keras.metrics.SparseCategoricalAccuracy(),
-#         ]
-#     )
-#     return test_model
 
 class ValFigCallback(keras.callbacks.Callback):
     def __init__(self, val_ds, logdir):
