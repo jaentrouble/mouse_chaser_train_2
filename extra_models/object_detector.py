@@ -470,7 +470,7 @@ class ObjectDetector(keras.Model):
             Will be multiplied to loss
         sigma: float
             How steep L2 part is.
-            i.e. y=sigma**2 * x
+            i.e. y=(sigma**2) * x until y < 1
         """
         sigma_2 = sigma**2
         box_diff = bbox_pred - bbox_targets
