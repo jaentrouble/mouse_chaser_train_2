@@ -4,7 +4,7 @@ from tensorflow.keras import layers
 from tensorflow import nn
 
 BN_MOMENTUM = 0.9
-NORM = 'batch'
+NORM = 'none'
 
 norm_layer = {
     'layer' : layers.LayerNormalization,
