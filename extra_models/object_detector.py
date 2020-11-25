@@ -94,7 +94,8 @@ class ObjectDetector(keras.Model):
         self.loss_tracker = keras.metrics.Mean(name='loss')
         self.rpn_loss_tracker = keras.metrics.Mean(name='rpn_loss')
         self.rfcn_loss_tracker = keras.metrics.Mean(name='rfcn_loss')
-        self.accuracy_metric = keras.metrics.SparseCategoricalAccuracy(name='pos_acc')
+        self.precision_metric = keras.metrics.SparseCategoricalAccuracy(name='prec')
+        self.sensitivity_metric = keras.metrics.SparseCategoricalAccuracy(name='sens')
 
         image_w, image_h = image_size
         backbone_inputs = keras.Input((image_h,image_w,3))
@@ -306,18 +307,28 @@ class ObjectDetector(keras.Model):
         )
         pos_labels = tf.gather(rfcn_labels, positive_idx)
         pos_scores = tf.gather(rfcn_cls_score, positive_idx)
-        self.accuracy_metric.update_state(pos_labels, pos_scores)
+        self.precision_metric.update_state(pos_labels, pos_scores)
+
+        real_pos_idx = tf.where(
+            rfcn_labels < self.num_classes
+        )
+        real_pos_labels = tf.gather(rfcn_labels, real_pos_idx)
+        real_pos_scores = tf.gather(rfcn_cls_score, real_pos_idx)
+        self.sensitivity_metric.update_state(real_pos_labels, real_pos_scores)
+        
         return {'loss': self.loss_tracker.result(),
                 'rpn_loss': self.rpn_loss_tracker.result(),
                 'rfcn_loss': self.rfcn_loss_tracker.result(),
-                'pos_acc': self.accuracy_metric.result()}
+                'prec': self.precision_metric.result(),
+                'sens': self.sensitivity_metric.result(),}
     
     @property
     def metrics(self):
         return [self.loss_tracker, 
-                self.accuracy_metric,
                 self.rpn_loss_tracker,
-                self.rfcn_loss_tracker,]
+                self.rfcn_loss_tracker,
+                self.precision_metric,
+                self.sensitivity_metric]
 
     def rfcn_cls_scores(self, features, rois):
         """rfcn_cls_pooling
