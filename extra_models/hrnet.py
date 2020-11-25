@@ -4,6 +4,18 @@ from tensorflow.keras import layers
 from tensorflow import nn
 
 BN_MOMENTUM = 0.9
+NORM = 'layer'
+
+norm_layer = {
+    'layer' : layers.LayerNormalization,
+    'batch' : layers.BatchNormalization,
+    'none' : layers.Activation,
+}
+norm_kwargs = {
+    'layer' : {},
+    'batch' : {'momentum':BN_MOMENTUM},
+    'none' : {'activation':'linear'}
+}
 
 def conv3x3(filters, stride=1):
     """A 3x3 Conv2D layer with 'same' padding"""
@@ -13,7 +25,7 @@ def conv3x3(filters, stride=1):
 class BasicBlock(layers.Layer):
     r"""Smallest building block of HR-Net
 
-    It consists of two Conv2D layers, each followed by a Batch Normalization
+    It consists of two Conv2D layers, each followed by a Normalization
     layer. A residual is added just before the last ReLU layer.
     Striding is only done in the first Conv2D layer.
 
@@ -47,15 +59,15 @@ class BasicBlock(layers.Layer):
 
     def build(self, input_shape):
         self.conv1 = conv3x3(self.filters, self.stride)
-        self.bn1 = layers.BatchNormalization(momentum=BN_MOMENTUM)
+        self.bn1 = norm_layer[NORM](**norm_kwargs[NORM])
         self.conv2 = conv3x3(self.filters)
-        self.bn2 = layers.BatchNormalization(momentum=BN_MOMENTUM)
+        self.bn2 = norm_layer[NORM](**norm_kwargs[NORM])
         if self.stride != 1 or \
             input_shape[-1] != self.filters:
             self.downsample = keras.Sequential([
                 layers.Conv2D(self.filters, 1, strides=self.stride,
                     padding='same'),
-                layers.BatchNormalization(momentum=BN_MOMENTUM)
+                norm_layer[NORM](**norm_kwargs[NORM])
             ])
         else:
             # Do nothing
@@ -193,7 +205,7 @@ class HighResolutionFusion(layers.Layer):
                         #     2**(j-i),
                         #     strides=2**(j-i),
                         # ),
-                        # layers.BatchNormalization(momentum=BN_MOMENTUM),
+                        # norm_layer[NORM](**norm_kwargs[NORM]),
                         layers.UpSampling2D(
                             size=2**(j-i),
                             interpolation='bilinear',
@@ -204,7 +216,7 @@ class HighResolutionFusion(layers.Layer):
                             1,
                             padding='same',
                         ),
-                        layers.BatchNormalization(momentum=BN_MOMENTUM),
+                        norm_layer[NORM](**norm_kwargs[NORM]),
                     ]))
                 elif j == i:
                     fuse_layer.append(keras.Sequential([
@@ -213,19 +225,19 @@ class HighResolutionFusion(layers.Layer):
                             1,
                             padding='same'
                         ),
-                        layers.BatchNormalization(momentum=BN_MOMENTUM)
+                        norm_layer[NORM](**norm_kwargs[NORM])
                     ]))
                 elif j < i:
                     downsampling=[]
                     for k in range(i-j-1):
                         downsampling.append(keras.Sequential([
                             conv3x3(self.filters[i],stride=2),
-                            layers.BatchNormalization(momentum=BN_MOMENTUM),
+                            norm_layer[NORM](**norm_kwargs[NORM]),
                             layers.ReLU(),
                         ]))
                     downsampling.append(keras.Sequential([
                         conv3x3(self.filters[i],stride=2),
-                        layers.BatchNormalization(momentum=BN_MOMENTUM),
+                        norm_layer[NORM](**norm_kwargs[NORM]),
                     ]))
                     fuse_layer.append(keras.Sequential(downsampling))
             self.fuse_layers.append(fuse_layer)
