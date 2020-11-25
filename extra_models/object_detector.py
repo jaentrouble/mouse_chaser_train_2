@@ -55,9 +55,9 @@ class ObjectDetector(keras.Model):
         stride,
         image_size,
         num_classes,
-        rfcn_window=3,
-        anchor_ratios=[0.5,1.0,2.0], 
-        anchor_scales=[0.2,0.4,0.7]
+        rfcn_window,
+        anchor_ratios, 
+        anchor_scales,
     ):
         """
         Arguments
@@ -182,9 +182,9 @@ class ObjectDetector(keras.Model):
             rfcn_cls_score, rfcn_bbox_pred, rois,
         )
 
-        return boxes, soft_probs, labels
+        # return boxes, soft_probs, labels
         #---------------DEBUG
-        # return rois, rpn_soft_probs
+        return rois, rpn_soft_probs, boxes, soft_probs, labels
 
     def train_step(self, data):
         """

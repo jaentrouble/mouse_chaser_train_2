@@ -270,12 +270,21 @@ class ValFigCallback(keras.callbacks.Callback):
             sample = next(samples)
             image, gt_box, _ = sample
             # Shape: (n,4), (n,)
-            boxes, probs, labels = self.model(image, training=True)
+            # boxes, probs, labels = self.model(image, training=True)
+            rois, rpn_probs, boxes, probs, labels= self.model(image, training=False)
+            rpn_image = image[0].copy()
             test_image = image[0].copy()
             gt_image = image[0].copy()
             # Shape: (k,4)
             gt_box = gt_box[0]
             h,w = np.subtract(gt_image.shape[:2],1)
+            for box, p in zip(rois,rpn_probs):
+                color = np.clip([4*(1-p),4*(p-0.5),0],0,1)
+                x1, y1, x2, y2 = np.multiply(box,[w,h,w,h,]).astype(np.int64)
+                rpn_image[y1,x1:x2] = color
+                rpn_image[y2,x1:x2] = color
+                rpn_image[y1:y2,x1] = color
+                rpn_image[y1:y2,x2] = color
             for box, p, l in zip(boxes,probs, labels):
                 color = self.colors[l] * p
                 x1, y1, x2, y2 = np.multiply(box,[w,h,w,h,]).astype(np.int64)
@@ -290,9 +299,11 @@ class ValFigCallback(keras.callbacks.Callback):
                 gt_image[y1:y2,x1] = [0,0,1]
                 gt_image[y1:y2,x2] = [0,0,1]
 
-            ax = fig.add_subplot(4,2,2*i+1)
+            ax = fig.add_subplot(4,3,3*i+1)
             ax.imshow(gt_image)
-            ax = fig.add_subplot(4,2,2*i+2)
+            ax = fig.add_subplot(4,3,3*i+2)
+            ax.imshow(rpn_image)
+            ax = fig.add_subplot(4,3,3*i+3)
             ax.imshow(test_image)
 
         return fig
@@ -452,6 +463,9 @@ if __name__ == '__main__':
         8,
         img_size,
         2,
+        3,
+        [0.5,1.0,2.0],
+        [0.1,0.3,0.6],
     )
     mymodel.load_weights('savedmodels/hr538_m_f2/91')
     mymodel.compile(optimizer='adam',run_eagerly=True)
