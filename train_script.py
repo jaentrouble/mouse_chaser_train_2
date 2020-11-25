@@ -75,12 +75,14 @@ kwargs['name'] = name
 kwargs['epochs'] = epochs
 kwargs['steps_per_epoch'] = steps_per_epoch
 # kwargs['batch_size'] = batch_size
+#---------------------------------------
 kwargs['intermediate_filters'] = 256
 kwargs['kernel_size'] = 16
 kwargs['stride'] = 8
 kwargs['rfcn_window'] = 3
 kwargs['anchor_ratios'] = [0.5,1.0,2.0]
 kwargs['anchor_scales'] = [0.1,0.3,0.6]
+#----------------------------------------
 kwargs['bbox_sizes'] = bbox_sizes
 kwargs['class_names'] = class_names
 kwargs['train_dir'] = train_dir
