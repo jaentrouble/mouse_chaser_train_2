@@ -21,7 +21,7 @@ RPN_LOSS_GAMMA = 1.0
 RFCN_LOSS_GAMMA = 0.0
 
 SMOOTH_L1_SIGMA = 1.0
-BG_TRAIN_RATIO = 0.75 # <---------------Name changed
+BG_TRAIN_RATIO = 0.75 # <----------------Name changed
 FG_THRES = 0.5
 BBOX_LOSS_GAMMA_RPN = 1.0
 BBOX_LOSS_GAMMA_RFCN = 1.0 
