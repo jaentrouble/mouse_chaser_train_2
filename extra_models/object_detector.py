@@ -14,16 +14,16 @@ NMS_THRES_RPN = 0.5
 NMS_THRES_RFCN = 0.1
 NMS_SCORE_THRES_RPN = 0.4
 NMS_SCORE_THRES_RFCN = 0.5
-SOFT_SIGMA_RPN = 1.0 # <-----------------Changed(rfcn_mf8)
+SOFT_SIGMA_RPN = 1.0 
 SOFT_SIGMA_RFCN = 0.0
 
 RPN_LOSS_GAMMA = 1.0
-RFCN_LOSS_GAMMA = 0.0
+RFCN_LOSS_GAMMA = 1.0 # <-----------------Changed(rfcn_mf8)
 
 SMOOTH_L1_SIGMA = 1.0
 BG_TRAIN_RATIO = 0.75 # <----------------Name changed
 FG_THRES = 0.5
-BBOX_LOSS_GAMMA_RPN = 1.0
+BBOX_LOSS_GAMMA_RPN = 1.0 # <------------Changed(rfcn_mf8)
 BBOX_LOSS_GAMMA_RFCN = 1.0 
 
 ALIGN_RES = 10 # Crop and resize to (ALIGN_RES*k, ALIGN_RES*k)
