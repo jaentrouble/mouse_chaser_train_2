@@ -21,7 +21,7 @@ RPN_LOSS_GAMMA = 1.0
 RFCN_LOSS_GAMMA = 0.0
 
 SMOOTH_L1_SIGMA = 1.0
-BG_RATIO = 0.75
+BG_TRAIN_RATIO = 0.75
 FG_THRES = 0.5
 BBOX_LOSS_GAMMA_RPN = 10.0 # <-------------- Changed (hr538_rfcn_mf_7)
 BBOX_LOSS_GAMMA_RFCN = 1.0 # <-------------- Changed (hr538_rfcn_mf_7)
@@ -256,13 +256,36 @@ class ObjectDetector(keras.Model):
                 self.proposal_target(rois, gt_boxes, gt_labels)
 
             # R_FCN Class loss
+            # Shape: (selected_N, 1)
+            rfcn_cls_select, is_selected = self.rfcn_limit_bg(rfcn_bbox_mask)
             rfcn_cls_features = self.rfcn_cls_conv(features)
-            # Shape: (N, cls+1)
-            rfcn_cls_score = self.rfcn_cls_scores(rfcn_cls_features, rois)
-            # Shape: (N,)
+            # Shape: (selected_N, 4)
+            rfcn_selected_rois = tf.cond(
+                is_selected,
+                lambda: tf.gather_nd(
+                    rois,
+                    rfcn_cls_select,
+                ),
+                lambda: rois
+            )
+            # Shape: (selected_N,)
+            rfcn_selected_labels = tf.cond(
+                is_selected,
+                lambda: tf.gather_nd(
+                    rfcn_labels,
+                    rfcn_cls_select,
+                ),
+                lambda: rfcn_labels
+            )
+            # Shape: (selected_N, cls+1)
+            rfcn_cls_selected_score = self.rfcn_cls_scores(
+                rfcn_cls_features,
+                rfcn_selected_rois
+            )
+            # Shape: (selected_N,)
             rfcn_all_cls_loss = tf.losses.sparse_categorical_crossentropy(
-                rfcn_labels,
-                rfcn_cls_score,
+                rfcn_selected_labels,
+                rfcn_cls_selected_score,
                 from_logits=True,
             )
             sorted_rfcn_cls_loss = tf.sort(
@@ -304,17 +327,17 @@ class ObjectDetector(keras.Model):
         self.rfcn_loss_tracker.update_state(rfcn_loss)
         # Only count non-backgrounds
         positive_idx = tf.where(
-            tf.argmax(rfcn_cls_score,axis=-1)!=self.num_classes
+            tf.argmax(rfcn_cls_selected_score,axis=-1)!=self.num_classes
         )
-        pos_labels = tf.gather(rfcn_labels, positive_idx)
-        pos_scores = tf.gather(rfcn_cls_score, positive_idx)
+        pos_labels = tf.gather(rfcn_selected_labels, positive_idx)
+        pos_scores = tf.gather(rfcn_cls_selected_score, positive_idx)
         self.precision_metric.update_state(pos_labels, pos_scores)
 
         real_pos_idx = tf.where(
-            rfcn_labels < self.num_classes
+            rfcn_selected_labels < self.num_classes
         )
-        real_pos_labels = tf.gather(rfcn_labels, real_pos_idx)
-        real_pos_scores = tf.gather(rfcn_cls_score, real_pos_idx)
+        real_pos_labels = tf.gather(rfcn_selected_labels, real_pos_idx)
+        real_pos_scores = tf.gather(rfcn_cls_selected_score, real_pos_idx)
         self.sensitivity_metric.update_state(real_pos_labels, real_pos_scores)
         
         return {'loss': self.loss_tracker.result(),
@@ -421,6 +444,52 @@ class ObjectDetector(keras.Model):
         # Shape: (N,4)
         bbox_reg = tf.reduce_mean(pooled_reshaped, axis=-1)
         return bbox_reg
+
+    def rfcn_limit_bg(self, bbox_mask):
+        """rfcn_limit_bg
+        Counts background example numbers, and if there are too many bg,
+        (i.e. more than BG_TRAIN_RATIO) drop random bg indices.
+        In this case, returns selected indices
+
+        If bg are less than or equal to BG_TRAIN_RATIO,
+        returns tf.range(tf.shape(bbox_mask)[0])[:,tf.newaxis]
+        (i.e. Use all)
+
+        Parameter
+        ---------
+        bbox_mask:
+            True (or casted to True) if foreground, 
+            False (or casted to False) if background
+            Shape: (N,)
+
+        Return
+        ------
+        indices:
+            Indices of selected examples
+            Note that new axis is added (tf.where behavior)
+            Shape: (num_selected,1)
+        is_selected:
+            True if some bg were dropped, False if not.
+        """
+        # Shape: (p_num,)
+        bool_mask = tf.cast(bbox_mask,tf.bool)
+        fg_indices = tf.where(bool_mask)
+        total_num = tf.shape(bool_mask)[0]
+        fg_num = tf.shape(fg_indices)[0]
+        bg_num = total_num - fg_num
+        max_bg_num = tf.cast(fg_num/(1-BG_TRAIN_RATIO),tf.int32)
+        selected_idx = tf.cond(
+            bg_num > max_bg_num,
+            lambda: tf.concat([
+                fg_indices,
+                tf.random.shuffle(
+                    tf.where(tf.logical_not(bool_mask))
+                )[:max_bg_num],
+            ],axis=0),
+            lambda: tf.range(total_num, dtype=tf.int32)[:,tf.newaxis]
+        )
+        return selected_idx, bg_num > max_bg_num
+
 
     def roi_align(self, features, rois, k):
         """roi_align
