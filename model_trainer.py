@@ -369,7 +369,7 @@ def run_training(
     )
 
     if load_model_path:
-        mymodel.load_weights(load_model_path)
+        mymodel.load_weights(load_model_path).expect_partial()
         print('loaded from : ' + load_model_path)
 
     #-------------------- Freeze R-FCN
