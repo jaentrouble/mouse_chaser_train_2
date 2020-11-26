@@ -5,6 +5,7 @@ from tensorflow.keras import mixed_precision
 from extra_models import backbone_models
 #
 RPN_TRAIN_THRES = 0.5
+
 BATCH_SIZE = 128
 POSITIVE_RATIO = 0.5
 
@@ -12,19 +13,23 @@ NMS_TOP_N_RPN = 100
 NMS_TOP_N_RFCN = 10
 NMS_THRES_RPN = 0.5
 NMS_THRES_RFCN = 0.1
-NMS_SCORE_THRES_RPN = 0.4
+NMS_SCORE_THRES_RPN = 0.0 #<---------Changed(rfcn_mf9)
 NMS_SCORE_THRES_RFCN = 0.5
 SOFT_SIGMA_RPN = 1.0 
 SOFT_SIGMA_RFCN = 0.0
 
-RPN_LOSS_GAMMA = 1.0
-RFCN_LOSS_GAMMA = 1.0 # <-----------------Changed(rfcn_mf8)
+RPN_LOSS_GAMMA = 0.0 # <-------------Changed(rfcn_mf9)
+RFCN_LOSS_GAMMA = 1.0 
 
 SMOOTH_L1_SIGMA = 1.0
-BG_TRAIN_RATIO = 0.75 # <----------------Name changed
-FG_THRES = 0.5
-BBOX_LOSS_GAMMA_RPN = 1.0 # <------------Changed(rfcn_mf8)
+
+BG_TRAIN_RATIO = 0.75 
+FG_THRES = 0.2    #<-----------------Changed(rfcn_mf9)
+
+BBOX_LOSS_GAMMA_RPN = 1.0 
 BBOX_LOSS_GAMMA_RFCN = 1.0 
+CLS_LOSS_GAMMA_RPN = 1.0 #<----------New(rfcn_mf9)
+CLS_LOSS_GAMMA_RFCN = 0.0 #<---------New(rfcn_mf9)
 
 ALIGN_RES = 10 # Crop and resize to (ALIGN_RES*k, ALIGN_RES*k)
 OHEM_N = 100
@@ -254,7 +259,8 @@ class ObjectDetector(keras.Model):
                 rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
             )
             rpn_bbox_loss = tf.reduce_sum(rpn_bbox_loss)
-            rpn_loss = rpn_cls_loss + BBOX_LOSS_GAMMA_RPN*rpn_bbox_loss
+            rpn_loss = CLS_LOSS_GAMMA_RPN*rpn_cls_loss + \
+                       BBOX_LOSS_GAMMA_RPN*rpn_bbox_loss
 
             # RoI Proposal
             rois, soft_probs = self.rpn_proposal(rpn_cls_score, rpn_bbox_pred)
@@ -305,7 +311,8 @@ class ObjectDetector(keras.Model):
                 sorted_rfcn_bbox_loss[:OHEM_N]
             )
 
-            rfcn_loss = rfcn_cls_loss + BBOX_LOSS_GAMMA_RFCN*rfcn_bbox_loss
+            rfcn_loss = CLS_LOSS_GAMMA_RFCN*rfcn_cls_loss + \
+                        BBOX_LOSS_GAMMA_RFCN*rfcn_bbox_loss
 
             loss = RPN_LOSS_GAMMA * rpn_loss + RFCN_LOSS_GAMMA * rfcn_loss
 

@@ -377,12 +377,29 @@ def run_training(
         print('####################Freezing rfcn layers')
         mymodel.rfcn_cls_conv.trainable = False
         mymodel.rfcn_reg_conv.trainable = False
+    else:
+        if 'rfcn_cls' in frozen_layers:
+            print('####################Freezing rfcn_cls layers')
+            mymodel.rfcn_cls_conv.trainable = False
+        if 'rfcn_reg' in frozen_layers:
+            print('####################Freezing rfcn_reg layers')
+            mymodel.rfcn_reg_conv.trainable=False
     #--------------------Freeze RPN
     if 'rpn' in frozen_layers:
         print('####################Freezing rpn layers')
         mymodel.rpn_inter_conv.trainable = False
         mymodel.rpn_cls_conv.trainable = False
         mymodel.rpn_reg_conv.trainable = False
+    else:
+        if 'rpn_inter' in frozen_layers:
+            print('####################Freezing rpn_inter layers')
+            mymodel.rpn_inter_conv.trainable = False
+        if 'rpn_cls' in frozen_layers:
+            print('####################Freezing rpn_cls layers')
+            mymodel.rpn_cls_conv.trainable = False
+        if 'rpn_reg' in frozen_layers:
+            print('####################Freezing rpn_reg layers')
+            mymodel.rpn_reg_conv.trainable = False
     #---------------------Freeze Backbone
     if 'backbone' in frozen_layers:
         print('####################Freezing backbone layers')

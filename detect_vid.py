@@ -12,6 +12,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('--load',dest='load', default=False)
 parser.add_argument('-v','--video',dest='video')
+parser.add_argument('-f','--frames',dest='frames')
 args = parser.parse_args()
 
 video = args.video
@@ -91,8 +92,8 @@ colors=np.array([
     [0,255,255],
 ])
 
-t = tqdm.tqdm(unit='frames')
-for frame in frames:
+t = tqdm.tqdm(unit='frames',total=int(args.frames))
+for frame in frames[:int(args.frames)]:
     if np.any(np.not_equal([img_size[1],img_size[0],3],frame.shape)):
         frame = cv2.resize(frame, dsize=img_size)
     float_frame = frame/ 255.0
