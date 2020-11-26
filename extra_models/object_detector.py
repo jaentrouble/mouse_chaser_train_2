@@ -18,12 +18,13 @@ SOFT_SIGMA_RPN = 1.0
 SOFT_SIGMA_RFCN = 0.0
 
 RPN_LOSS_GAMMA = 1.0
-RFCN_LOSS_GAMMA = 0.0 # <-------------- Changed (hr538_rfcn_mf_6)
+RFCN_LOSS_GAMMA = 0.0
 
 SMOOTH_L1_SIGMA = 1.0
 BG_RATIO = 0.75
 FG_THRES = 0.5
-BBOX_LOSS_GAMMA = 1
+BBOX_LOSS_GAMMA_RPN = 10.0 # <-------------- Changed (hr538_rfcn_mf_7)
+BBOX_LOSS_GAMMA_RFCN = 1.0 # <-------------- Changed (hr538_rfcn_mf_7)
 
 ALIGN_RES = 10 # Crop and resize to (ALIGN_RES*k, ALIGN_RES*k)
 OHEM_N = 100
