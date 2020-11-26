@@ -248,7 +248,7 @@ class ObjectDetector(keras.Model):
                 rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
             )
             rpn_bbox_loss = tf.reduce_sum(rpn_bbox_loss)
-            rpn_loss = rpn_cls_loss + BBOX_LOSS_GAMMA*rpn_bbox_loss
+            rpn_loss = rpn_cls_loss + BBOX_LOSS_GAMMA_RPN*rpn_bbox_loss
 
             # RoI Proposal
             rois, soft_probs = self.rpn_proposal(rpn_cls_score, rpn_bbox_pred)
@@ -292,7 +292,7 @@ class ObjectDetector(keras.Model):
                 sorted_rfcn_bbox_loss[:OHEM_N]
             )
 
-            rfcn_loss = rfcn_cls_loss + BBOX_LOSS_GAMMA*rfcn_bbox_loss
+            rfcn_loss = rfcn_cls_loss + BBOX_LOSS_GAMMA_RFCN*rfcn_bbox_loss
 
             loss = RPN_LOSS_GAMMA * rpn_loss + RFCN_LOSS_GAMMA * rfcn_loss
 

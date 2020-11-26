@@ -368,6 +368,10 @@ def run_training(
         anchor_scales
     )
 
+    if load_model_path:
+        mymodel.load_weights(load_model_path)
+        print('loaded from : ' + load_model_path)
+
     #-------------------- Freeze R-FCN
     if 'rfcn' in frozen_layers:
         print('####################Freezing rfcn layers')
@@ -385,9 +389,6 @@ def run_training(
         mymodel.backbone_model.trainable = False
 
 
-    if load_model_path:
-        mymodel.load_weights(load_model_path)
-        print('loaded from : ' + load_model_path)
     mymodel.compile(
         optimizer='adam',
     )
