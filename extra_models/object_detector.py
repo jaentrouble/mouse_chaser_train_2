@@ -826,14 +826,14 @@ class ObjectDetector(keras.Model):
         labels = tf.tensor_scatter_nd_update(
             labels, 
             tf.expand_dims(gt_argmax_iou,-1),
-            tf.fill([tf.shape(gt_argmax_iou)[0]],1)
+            tf.fill([tf.shape(gt_argmax_iou)[0]],1.0)
         )
 
         over_thres = tf.where(max_iou>=RPN_TRAIN_THRES)
         labels = tf.tensor_scatter_nd_update(
             labels, 
             over_thres,
-            tf.fill([tf.shape(over_thres)[0]],1)
+            tf.fill([tf.shape(over_thres)[0]],1.0)
         )
         
         # Subsample positive if too many
