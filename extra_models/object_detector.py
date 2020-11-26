@@ -477,7 +477,8 @@ class ObjectDetector(keras.Model):
         total_num = tf.shape(bool_mask)[0]
         fg_num = tf.shape(fg_indices)[0]
         bg_num = total_num - fg_num
-        max_bg_num = tf.cast(fg_num/(1-BG_TRAIN_RATIO),tf.int32)
+        max_bg_num = tf.cast(tf.cast(fg_num,tf.float32)/(1-BG_TRAIN_RATIO),
+                             tf.int32)
         selected_idx = tf.cond(
             bg_num > max_bg_num,
             lambda: tf.concat([
