@@ -18,7 +18,7 @@ SOFT_SIGMA_RPN = 1.0
 SOFT_SIGMA_RFCN = 0.0
 
 RPN_LOSS_GAMMA = 1.0
-RFCN_LOSS_GAMMA = 1.0
+RFCN_LOSS_GAMMA = 0.0 # <-------------- Changed (hr538_rfcn_mf_6)
 
 SMOOTH_L1_SIGMA = 1.0
 BG_RATIO = 0.75

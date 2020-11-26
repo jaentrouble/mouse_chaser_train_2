@@ -332,6 +332,7 @@ def run_training(
         train_dir,
         val_dir,
         img_size,
+        frozen_layers = [],
         mixed_float = True,
         notebook = True,
         load_model_path = None,
@@ -340,6 +341,8 @@ def run_training(
     """
     img_size:
         (WIDTH, HEIGHT)
+    frozen layers:
+        one or more of ['rfcn','rpn','backbone']
     """
 
     if mixed_float:
@@ -364,6 +367,24 @@ def run_training(
         anchor_ratios,
         anchor_scales
     )
+
+    #-------------------- Freeze R-FCN
+    if 'rfcn' in frozen_layers:
+        print('####################Freezing rfcn layers')
+        mymodel.rfcn_cls_conv.trainable = False
+        mymodel.rfcn_reg_conv.trainable = False
+    #--------------------Freeze RPN
+    if 'rpn' in frozen_layers:
+        print('####################Freezing rpn layers')
+        mymodel.rpn_inter_conv.trainable = False
+        mymodel.rpn_cls_conv.trainable = False
+        mymodel.rpn_reg_conv.trainable = False
+    #---------------------Freeze Backbone
+    if 'backbone' in frozen_layers:
+        print('####################Freezing backbone layers')
+        mymodel.backbone_model.trainable = False
+
+
     if load_model_path:
         mymodel.load_weights(load_model_path)
         print('loaded from : ' + load_model_path)
