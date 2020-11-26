@@ -266,23 +266,17 @@ class ObjectDetector(keras.Model):
             rfcn_cls_select, is_selected = self.rfcn_limit_bg(rfcn_bbox_mask)
             rfcn_cls_features = self.rfcn_cls_conv(features)
             # Shape: (selected_N, 4)
-            rfcn_selected_rois = tf.cond(
-                is_selected,
-                lambda: tf.gather_nd(
-                    rois,
-                    rfcn_cls_select,
-                ),
-                lambda: rois
+            rfcn_selected_rois = tf.gather_nd(
+                rois,
+                rfcn_cls_select,
             )
+            
             # Shape: (selected_N,)
-            rfcn_selected_labels = tf.cond(
-                is_selected,
-                lambda: tf.gather_nd(
-                    rfcn_labels,
-                    rfcn_cls_select,
-                ),
-                lambda: rfcn_labels
+            rfcn_selected_labels = tf.gather_nd(
+                rfcn_labels,
+                rfcn_cls_select,
             )
+            
             # Shape: (selected_N, cls+1)
             rfcn_cls_selected_score = self.rfcn_cls_scores(
                 rfcn_cls_features,
@@ -456,10 +450,7 @@ class ObjectDetector(keras.Model):
         Counts background example numbers, and if there are too many bg,
         (i.e. more than BG_TRAIN_RATIO) drop random bg indices.
         In this case, returns selected indices
-
-        If bg are less than or equal to BG_TRAIN_RATIO,
-        returns tf.range(tf.shape(bbox_mask)[0])[:,tf.newaxis]
-        (i.e. Use all)
+        Else, just shuffled indices are returned
 
         Parameter
         ---------
@@ -470,32 +461,24 @@ class ObjectDetector(keras.Model):
 
         Return
         ------
-        indices:
+        selected_idx:
             Indices of selected examples
             Note that new axis is added (tf.where behavior)
             Shape: (num_selected,1)
-        is_selected:
-            True if some bg were dropped, False if not.
         """
         # Shape: (p_num,)
         bool_mask = tf.cast(bbox_mask,tf.bool)
         fg_indices = tf.where(bool_mask)
-        total_num = tf.shape(bool_mask)[0]
+        bg_indices = tf.where(tf.logical_not(bool_mask))
         fg_num = tf.shape(fg_indices)[0]
         bg_num = total_num - fg_num
         max_bg_num = tf.cast(tf.cast(fg_num,tf.float32)/(1-BG_TRAIN_RATIO),
                              tf.int32)
-        selected_idx = tf.cond(
-            bg_num > max_bg_num,
-            lambda: tf.cast(tf.concat([
-                fg_indices,
-                tf.random.shuffle(
-                    tf.where(tf.logical_not(bool_mask))
-                )[:max_bg_num],
-            ],axis=0),tf.int32),
-            lambda: tf.range(total_num, dtype=tf.int32)[:,tf.newaxis]
-        )
-        return selected_idx, bg_num > max_bg_num
+        mixed_bg_idx = tf.random.shuffle(bg_indices)
+        selected_bg_idx = mixed_bg_idx[:max_bg_num]
+        selected_idx = tf.concat([fg_indices, selected_bg_idx],axis=0)
+
+        return selected_idx
 
 
     def roi_align(self, features, rois, k):
