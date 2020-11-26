@@ -109,9 +109,11 @@ class ObjectDetector(keras.Model):
             self.kernel_size,
             strides=self.stride,
         )
+        # Dummy to determine layer's shape
+        dummy_rpn_inter_output = self.rpn_inter_conv(backbone_outputs)
 
         self.f_height, self.f_width = \
-            self.rpn_inter_conv(backbone_outputs).shape[1:3]
+            dummy_rpn_inter_output.shape[1:3]
         # Shape: (h,w,9,4)
         self._all_anchors = self.generate_anchors_pre(self.f_height, self.f_width)
         # Shape: (num_inside,3), (num_inside,4)
@@ -143,8 +145,12 @@ class ObjectDetector(keras.Model):
             padding='same',
             dtype=tf.float32,
         )
+        # Dummy to determine layer's shape
+        dummy_rpn_cls_output = self.rpn_cls_conv(dummy_rpn_inter_output)
+        dummy_rpn_reg_output = self.rpn_reg_conv(dummy_rpn_inter_output)
+        dummy_rfcn_cls_output= self.rfcn_cls_conv(backbone_outputs)
+        dummy_rfcn_reg_conv  = self.rfcn_reg_conv(backbone_outputs)
 
-        
 
     def call(self, inputs, training=False):
         #-------DEBUG
