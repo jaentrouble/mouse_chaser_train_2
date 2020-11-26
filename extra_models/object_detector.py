@@ -487,7 +487,7 @@ class ObjectDetector(keras.Model):
                     tf.where(tf.logical_not(bool_mask))
                 )[:max_bg_num],
             ],axis=0),
-            lambda: tf.range(total_num, dtype=tf.int32)[:,tf.newaxis]
+            lambda: tf.range(total_num, dtype=tf.int64)[:,tf.newaxis]
         )
         return selected_idx, bg_num > max_bg_num
 
