@@ -863,7 +863,7 @@ class ObjectDetector(keras.Model):
             lambda: tf.tensor_scatter_nd_update(
                 labels,
                 mixed_n_idx[:delta_n],
-                tf.fill([delta_n],-1)
+                tf.fill([delta_n],-1.0)
             ),
             lambda: labels
         )
