@@ -27,7 +27,7 @@ BG_TRAIN_RATIO = 0.75
 FG_THRES = 0.2    #<-----------------Changed(rfcn_mf9)
 
 BBOX_LOSS_GAMMA_RPN = 1.0 
-BBOX_LOSS_GAMMA_RFCN = 1.0 
+BBOX_LOSS_GAMMA_RFCN = 1.0e3 #<------Changed(rfcn_mf9) 
 CLS_LOSS_GAMMA_RPN = 1.0 #<----------New(rfcn_mf9)
 CLS_LOSS_GAMMA_RFCN = 0.0 #<---------New(rfcn_mf9)
 
