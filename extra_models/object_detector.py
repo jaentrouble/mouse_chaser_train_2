@@ -457,7 +457,7 @@ class ObjectDetector(keras.Model):
         bool_mask = tf.cast(bbox_mask,tf.bool)
         fg_indices = tf.where(bool_mask)
         bg_indices = tf.where(tf.logical_not(bool_mask))
-        total_num = tf.shape(bbox_mask[0])
+        total_num = tf.shape(bbox_mask)[0]
         fg_num = tf.shape(fg_indices)[0]
         bg_num = tf.shape(bg_indices)[0]
         max_bg_num = tf.cast(
@@ -469,7 +469,7 @@ class ObjectDetector(keras.Model):
         delta_bg = bg_num - max_bg_num
         loss_mask = tf.cond(
             delta_bg > 0,
-            lambda: tf.tensor_scatter_update(
+            lambda: tf.tensor_scatter_nd_update(
                 loss_mask,
                 mixed_bg_idx[:delta_bg],
                 tf.fill([delta_bg],0.0)
@@ -692,7 +692,7 @@ class ObjectDetector(keras.Model):
         rfcn_labels = tf.tensor_scatter_nd_update(
             cls_labels,
             bg_idx,
-            tf.fill([tf.shape(bg_idx)[0]],1)*self.num_classes,
+            tf.fill([tf.shape(bg_idx)[0]],1.0)*self.num_classes,
         )
 
         # Shape: (M, 4)
@@ -882,7 +882,7 @@ class ObjectDetector(keras.Model):
         # Shape: (num_inside, 1)
         bbox_mask = tf.scatter_nd(
             p_idx,
-            tf.fill([p_num,1],1),
+            tf.fill([p_num,1],1.0),
             [num_inside,1],
         )
 
