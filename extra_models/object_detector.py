@@ -263,7 +263,7 @@ class ObjectDetector(keras.Model):
 
             # R_FCN Class loss
             # Shape: (selected_N, 1)
-            rfcn_cls_select, is_selected = self.rfcn_limit_bg(rfcn_bbox_mask)
+            rfcn_cls_select = self.rfcn_limit_bg(rfcn_bbox_mask)
             rfcn_cls_features = self.rfcn_cls_conv(features)
             # Shape: (selected_N, 4)
             rfcn_selected_rois = tf.gather_nd(
