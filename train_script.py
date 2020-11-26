@@ -82,7 +82,7 @@ kwargs['stride'] = 8
 kwargs['rfcn_window'] = 3
 kwargs['anchor_ratios'] = [0.5,1.0,2.0]
 kwargs['anchor_scales'] = [0.1,0.3,0.6]
-kwargs['frozen_layers'] = ['rfcn','backbone']
+kwargs['frozen_layers'] = []
 #----------------------------------------
 kwargs['bbox_sizes'] = bbox_sizes
 kwargs['class_names'] = class_names

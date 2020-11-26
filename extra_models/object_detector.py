@@ -23,8 +23,8 @@ RFCN_LOSS_GAMMA = 0.0
 SMOOTH_L1_SIGMA = 1.0
 BG_TRAIN_RATIO = 0.75
 FG_THRES = 0.5
-BBOX_LOSS_GAMMA_RPN = 10.0 # <-------------- Changed (hr538_rfcn_mf_7)
-BBOX_LOSS_GAMMA_RFCN = 1.0 # <-------------- Changed (hr538_rfcn_mf_7)
+BBOX_LOSS_GAMMA_RPN = 1.0
+BBOX_LOSS_GAMMA_RFCN = 1.0 
 
 ALIGN_RES = 10 # Crop and resize to (ALIGN_RES*k, ALIGN_RES*k)
 OHEM_N = 100
