@@ -276,7 +276,7 @@ class ObjectDetector(keras.Model):
                 rfcn_labels,
                 rfcn_cls_select,
             )
-            
+
             # Shape: (selected_N, cls+1)
             rfcn_cls_selected_score = self.rfcn_cls_scores(
                 rfcn_cls_features,
@@ -471,7 +471,7 @@ class ObjectDetector(keras.Model):
         fg_indices = tf.where(bool_mask)
         bg_indices = tf.where(tf.logical_not(bool_mask))
         fg_num = tf.shape(fg_indices)[0]
-        bg_num = total_num - fg_num
+        bg_num = tf.shape(bg_indices)[0]
         max_bg_num = tf.cast(tf.cast(fg_num,tf.float32)/(1-BG_TRAIN_RATIO),
                              tf.int32)
         mixed_bg_idx = tf.random.shuffle(bg_indices)
