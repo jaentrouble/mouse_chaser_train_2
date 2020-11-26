@@ -262,32 +262,22 @@ class ObjectDetector(keras.Model):
                 self.proposal_target(rois, gt_boxes, gt_labels)
 
             # R_FCN Class loss
-            # Shape: (selected_N, 1)
-            rfcn_cls_select = self.rfcn_limit_bg(rfcn_bbox_mask)
+            # Shape: (N,)
+            rfcn_cls_mask = self.rfcn_limit_bg(rfcn_bbox_mask)
             rfcn_cls_features = self.rfcn_cls_conv(features)
-            # Shape: (selected_N, 4)
-            rfcn_selected_rois = tf.gather_nd(
-                rois,
-                rfcn_cls_select,
-            )
-            
-            # Shape: (selected_N,)
-            rfcn_selected_labels = tf.gather_nd(
-                rfcn_labels,
-                rfcn_cls_select,
-            )
 
-            # Shape: (selected_N, cls+1)
-            rfcn_cls_selected_score = self.rfcn_cls_scores(
+            # Shape: (N, cls+1)
+            rfcn_cls_score = self.rfcn_cls_scores(
                 rfcn_cls_features,
-                rfcn_selected_rois
+                rois
             )
-            # Shape: (selected_N,)
+            # Shape: (N,)
             rfcn_all_cls_loss = tf.losses.sparse_categorical_crossentropy(
-                rfcn_selected_labels,
-                rfcn_cls_selected_score,
+                rfcn_labels,
+                rfcn_cls_score,
                 from_logits=True,
             )
+            masked_rfcn_cls_loss = rfcn_all_cls_loss * rfcn_cls_mask
             sorted_rfcn_cls_loss = tf.sort(
                 rfcn_all_cls_loss,
                 direction='DESCENDING'
@@ -327,17 +317,17 @@ class ObjectDetector(keras.Model):
         self.rfcn_loss_tracker.update_state(rfcn_loss)
         # Only count non-backgrounds
         positive_idx = tf.where(
-            tf.argmax(rfcn_cls_selected_score,axis=-1)!=self.num_classes
+            tf.argmax(rfcn_cls_score,axis=-1)!=self.num_classes
         )
-        pos_labels = tf.gather(rfcn_selected_labels, positive_idx)
-        pos_scores = tf.gather(rfcn_cls_selected_score, positive_idx)
+        pos_labels = tf.gather(rfcn_labels, positive_idx)
+        pos_scores = tf.gather(rfcn_cls_score, positive_idx)
         self.precision_metric.update_state(pos_labels, pos_scores)
 
         real_pos_idx = tf.where(
-            rfcn_selected_labels < self.num_classes
+            rfcn_labels < self.num_classes
         )
-        real_pos_labels = tf.gather(rfcn_selected_labels, real_pos_idx)
-        real_pos_scores = tf.gather(rfcn_cls_selected_score, real_pos_idx)
+        real_pos_labels = tf.gather(rfcn_labels, real_pos_idx)
+        real_pos_scores = tf.gather(rfcn_cls_score, real_pos_idx)
         self.sensitivity_metric.update_state(real_pos_labels, real_pos_scores)
         
         return {'loss': self.loss_tracker.result(),
@@ -448,9 +438,7 @@ class ObjectDetector(keras.Model):
     def rfcn_limit_bg(self, bbox_mask):
         """rfcn_limit_bg
         Counts background example numbers, and if there are too many bg,
-        (i.e. more than BG_TRAIN_RATIO) drop random bg indices.
-        In this case, returns selected indices
-        Else, just shuffled indices are returned
+        (i.e. more than BG_TRAIN_RATIO) drop random bg.
 
         Parameter
         ---------
@@ -461,24 +449,36 @@ class ObjectDetector(keras.Model):
 
         Return
         ------
-        selected_idx:
-            Indices of selected examples
-            Note that new axis is added (tf.where behavior)
-            Shape: (num_selected,1)
+        loss_mask:
+            Mask where dropped bgs are 0
+            Shape: (N,)
         """
         # Shape: (p_num,)
         bool_mask = tf.cast(bbox_mask,tf.bool)
         fg_indices = tf.where(bool_mask)
         bg_indices = tf.where(tf.logical_not(bool_mask))
+        total_num = tf.shape(bbox_mask[0])
         fg_num = tf.shape(fg_indices)[0]
         bg_num = tf.shape(bg_indices)[0]
-        max_bg_num = tf.cast(tf.cast(fg_num,tf.float32)/(1-BG_TRAIN_RATIO),
-                             tf.int32)
-        mixed_bg_idx = tf.random.shuffle(bg_indices)
-        selected_bg_idx = mixed_bg_idx[:max_bg_num]
-        selected_idx = tf.concat([fg_indices, selected_bg_idx],axis=0)
+        max_bg_num = tf.cast(
+                tf.cast(fg_num,tf.float32)*BG_TRAIN_RATIO/(1-BG_TRAIN_RATIO),
+                        tf.int32)
 
-        return selected_idx
+        loss_mask = tf.fill([total_num,],1.0)
+        mixed_bg_idx = tf.random.shuffle(bg_indices)
+        delta_bg = bg_num - max_bg_num
+        loss_mask = tf.cond(
+            delta_bg > 0,
+            lambda: tf.tensor_scatter_update(
+                loss_mask,
+                mixed_bg_idx[:delta_bg],
+                tf.fill([delta_bg],0.0)
+            ),
+            lambda: loss_mask
+        )
+        
+
+        return loss_mask
 
 
     def roi_align(self, features, rois, k):
@@ -504,7 +504,7 @@ class ObjectDetector(keras.Model):
         cropped = tf.image.crop_and_resize(
             features,
             rois[...,::-1],
-            tf.zeros([tf.shape(rois)[0]],dtype=tf.int32),
+            tf.fill([tf.shape(rois)[0]],0),
             [ALIGN_RES*k, ALIGN_RES*k],
         )
         pooled = tf.nn.avg_pool2d(cropped,ALIGN_RES,ALIGN_RES,'SAME')
@@ -692,7 +692,7 @@ class ObjectDetector(keras.Model):
         rfcn_labels = tf.tensor_scatter_nd_update(
             cls_labels,
             bg_idx,
-            tf.ones(tf.shape(bg_idx)[0])*self.num_classes,
+            tf.fill([tf.shape(bg_idx)[0]],1)*self.num_classes,
         )
 
         # Shape: (M, 4)
@@ -826,14 +826,14 @@ class ObjectDetector(keras.Model):
         labels = tf.tensor_scatter_nd_update(
             labels, 
             tf.expand_dims(gt_argmax_iou,-1),
-            tf.ones(tf.shape(gt_argmax_iou)[0])
+            tf.fill([tf.shape(gt_argmax_iou)[0]],1)
         )
 
         over_thres = tf.where(max_iou>=RPN_TRAIN_THRES)
         labels = tf.tensor_scatter_nd_update(
             labels, 
             over_thres,
-            tf.ones(tf.shape(over_thres)[0])
+            tf.fill([tf.shape(over_thres)[0]],1)
         )
         
         # Subsample positive if too many
@@ -847,7 +847,7 @@ class ObjectDetector(keras.Model):
             lambda: tf.tensor_scatter_nd_update(
                 labels, 
                 mixed_p_idx[:delta_p],
-                tf.ones(delta_p)*(-1),
+                tf.fill([delta_p,],-1),
             ),
             lambda: labels
         )
@@ -863,7 +863,7 @@ class ObjectDetector(keras.Model):
             lambda: tf.tensor_scatter_nd_update(
                 labels,
                 mixed_n_idx[:delta_n],
-                tf.ones(delta_n)*(-1)
+                tf.fill([delta_n],-1)
             ),
             lambda: labels
         )
@@ -882,7 +882,7 @@ class ObjectDetector(keras.Model):
         # Shape: (num_inside, 1)
         bbox_mask = tf.scatter_nd(
             p_idx,
-            tf.ones((p_num,1)),
+            tf.fill([p_num,1],1),
             [num_inside,1],
         )
 

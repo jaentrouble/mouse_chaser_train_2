@@ -14,16 +14,17 @@ NMS_THRES_RPN = 0.5
 NMS_THRES_RFCN = 0.1
 NMS_SCORE_THRES_RPN = 0.4
 NMS_SCORE_THRES_RFCN = 0.5
-SOFT_SIGMA_RPN = 1.0
+SOFT_SIGMA_RPN = 1.0 
 SOFT_SIGMA_RFCN = 0.0
 
 RPN_LOSS_GAMMA = 1.0
-RFCN_LOSS_GAMMA = 1.0
+RFCN_LOSS_GAMMA = 1.0 # <-----------------Changed(rfcn_mf8)
 
 SMOOTH_L1_SIGMA = 1.0
-BG_RATIO = 0.75
+BG_TRAIN_RATIO = 0.75 # <----------------Name changed
 FG_THRES = 0.5
-BBOX_LOSS_GAMMA = 1
+BBOX_LOSS_GAMMA_RPN = 1.0 # <------------Changed(rfcn_mf8)
+BBOX_LOSS_GAMMA_RFCN = 1.0 
 
 ALIGN_RES = 10 # Crop and resize to (ALIGN_RES*k, ALIGN_RES*k)
 OHEM_N = 100
@@ -34,8 +35,10 @@ OHEM_N = 100
 class ObjectDetector(keras.Model):
     """ObjectDetector
     Gets an image and returns detected boundary boxes with classes
+
     Note:
         This model only takes a single image at a time.
+
     Note:
         Call method is not meant to be used when training.
         Use train_step directly.
@@ -43,6 +46,7 @@ class ObjectDetector(keras.Model):
     RoI : (x1, y1, x2, y2), all normalized to [0,1]
         x: width
         y: height
+
     """
     def __init__(
         self, 
@@ -105,9 +109,11 @@ class ObjectDetector(keras.Model):
             self.kernel_size,
             strides=self.stride,
         )
+        # Dummy to determine layer's shape
+        dummy_rpn_inter_output = self.rpn_inter_conv(backbone_outputs)
 
         self.f_height, self.f_width = \
-            self.rpn_inter_conv(backbone_outputs).shape[1:3]
+            dummy_rpn_inter_output.shape[1:3]
         # Shape: (h,w,9,4)
         self._all_anchors = self.generate_anchors_pre(self.f_height, self.f_width)
         # Shape: (num_inside,3), (num_inside,4)
@@ -139,8 +145,12 @@ class ObjectDetector(keras.Model):
             padding='same',
             dtype=tf.float32,
         )
+        # Dummy to determine layer's shape
+        dummy_rpn_cls_output = self.rpn_cls_conv(dummy_rpn_inter_output)
+        dummy_rpn_reg_output = self.rpn_reg_conv(dummy_rpn_inter_output)
+        dummy_rfcn_cls_output= self.rfcn_cls_conv(backbone_outputs)
+        dummy_rfcn_reg_conv  = self.rfcn_reg_conv(backbone_outputs)
 
-        
 
     def call(self, inputs, training=False):
         #-------DEBUG
@@ -244,7 +254,7 @@ class ObjectDetector(keras.Model):
                 rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_mask 
             )
             rpn_bbox_loss = tf.reduce_sum(rpn_bbox_loss)
-            rpn_loss = rpn_cls_loss + BBOX_LOSS_GAMMA*rpn_bbox_loss
+            rpn_loss = rpn_cls_loss + BBOX_LOSS_GAMMA_RPN*rpn_bbox_loss
 
             # RoI Proposal
             rois, soft_probs = self.rpn_proposal(rpn_cls_score, rpn_bbox_pred)
@@ -288,7 +298,7 @@ class ObjectDetector(keras.Model):
                 sorted_rfcn_bbox_loss[:OHEM_N]
             )
 
-            rfcn_loss = rfcn_cls_loss + BBOX_LOSS_GAMMA*rfcn_bbox_loss
+            rfcn_loss = rfcn_cls_loss + BBOX_LOSS_GAMMA_RFCN*rfcn_bbox_loss
 
             loss = RPN_LOSS_GAMMA * rpn_loss + RFCN_LOSS_GAMMA * rfcn_loss
 
@@ -302,15 +312,15 @@ class ObjectDetector(keras.Model):
         positive_idx = tf.where(
             tf.argmax(rfcn_cls_score,axis=-1)!=self.num_classes
         )
-        pos_labels = tf.gather(rfcn_labels, positive_idx)
-        pos_scores = tf.gather(rfcn_cls_score, positive_idx)
+        pos_labels = tf.gather(rfcn_selected_labels, positive_idx)
+        pos_scores = tf.gather(rfcn_cls_selected_score, positive_idx)
         self.precision_metric.update_state(pos_labels, pos_scores)
 
         real_pos_idx = tf.where(
-            rfcn_labels < self.num_classes
+            rfcn_selected_labels < self.num_classes
         )
-        real_pos_labels = tf.gather(rfcn_labels, real_pos_idx)
-        real_pos_scores = tf.gather(rfcn_cls_score, real_pos_idx)
+        real_pos_labels = tf.gather(rfcn_selected_labels, real_pos_idx)
+        real_pos_scores = tf.gather(rfcn_cls_selected_score, real_pos_idx)
         self.sensitivity_metric.update_state(real_pos_labels, real_pos_scores)
         
         return {'loss': self.loss_tracker.result(),
@@ -330,6 +340,7 @@ class ObjectDetector(keras.Model):
     def rfcn_cls_scores(self, features, rois):
         """rfcn_cls_pooling
         Average pool and retun class scores (in logit)
+
         Parameters
         ----------
         features:
@@ -337,6 +348,7 @@ class ObjectDetector(keras.Model):
             Shape: (1,h,w,(cls+1)*(k**2))
         rois:
             Shape: (N,4)
+
         Returns
         -------
         scores:
@@ -374,6 +386,7 @@ class ObjectDetector(keras.Model):
     def rfcn_bbox_reg(self, features, rois):
         """rfcn_bbox_reg
         Average pool and return bbox_reg
+
         Parameters
         ----------
         features:
@@ -381,6 +394,7 @@ class ObjectDetector(keras.Model):
             Shape: (1,h,w,4*(k**2))
         rois:
             Shape: (N,4)
+
         Returns
         -------
         bbox_reg:
@@ -414,10 +428,47 @@ class ObjectDetector(keras.Model):
         bbox_reg = tf.reduce_mean(pooled_reshaped, axis=-1)
         return bbox_reg
 
+    def rfcn_limit_bg(self, bbox_mask):
+        """rfcn_limit_bg
+        Counts background example numbers, and if there are too many bg,
+        (i.e. more than BG_TRAIN_RATIO) drop random bg indices.
+        In this case, returns selected indices
+        Else, just shuffled indices are returned
+
+        Parameter
+        ---------
+        bbox_mask:
+            True (or casted to True) if foreground, 
+            False (or casted to False) if background
+            Shape: (N,)
+
+        Return
+        ------
+        selected_idx:
+            Indices of selected examples
+            Note that new axis is added (tf.where behavior)
+            Shape: (num_selected,1)
+        """
+        # Shape: (p_num,)
+        bool_mask = tf.cast(bbox_mask,tf.bool)
+        fg_indices = tf.where(bool_mask)
+        bg_indices = tf.where(tf.logical_not(bool_mask))
+        fg_num = tf.shape(fg_indices)[0]
+        bg_num = tf.shape(bg_indices)[0]
+        max_bg_num = tf.cast(tf.cast(fg_num,tf.float32)/(1-BG_TRAIN_RATIO),
+                             tf.int32)
+        mixed_bg_idx = tf.random.shuffle(bg_indices)
+        selected_bg_idx = mixed_bg_idx[:max_bg_num]
+        selected_idx = tf.concat([fg_indices, selected_bg_idx],axis=0)
+
+        return selected_idx
+
+
     def roi_align(self, features, rois, k):
         """roi_align
         Crop features in the shape of RoI (expects it to be normalized)
         and average pools to the bin size
+
         Parameters
         ----------
         features:
@@ -449,7 +500,9 @@ class ObjectDetector(keras.Model):
         Let x be target-pred
         if abs(x) < 1: 0.5*x**2
         else: abs(x) - 0.5
+
         Reduces final axis
+
         Parameters
         ----------
         bbox_pred, bbox_targets: tf.Tensor
@@ -486,6 +539,7 @@ class ObjectDetector(keras.Model):
             Output of reg layer
             Will be flattened anyway, so shape does not matter
             Shape: (h,w,9*4)
+
         Returns
         -------
         boxes: tf.Tensor
@@ -526,6 +580,7 @@ class ObjectDetector(keras.Model):
             Shape: (n,num_cls+1)
         rfcn_bbox_pred: tf.Tensor
             Shape: (n,4)
+
         Returns
         -------
         boxes: tf.Tensor
@@ -590,6 +645,7 @@ class ObjectDetector(keras.Model):
             Shape: (k, 4)
         gt_labels:
             Shape: (k,)
+
         Returns
         -------
         rfcn_labels:
@@ -639,10 +695,12 @@ class ObjectDetector(keras.Model):
     def iou(self, bbox1, bbox2):
         """iou
         Calculate iou
+
         Parameters
         ----------
         bbox1, bbox2: tf.Tensor
             Broadcastable shape, and the last dimension should be 4 i.e. [...,4]
+
         Return
         ------
         iou: tf.Tensor
@@ -707,6 +765,7 @@ class ObjectDetector(keras.Model):
         """
         Create a set of anchors.
         [-dx, -dy, dx, dy] where dx, dy are half of width, height each
+
         Return
         ------
         anchors: tf.Tensor
@@ -723,6 +782,7 @@ class ObjectDetector(keras.Model):
     def anchor_target(self, gt_boxes,):
         """Anchor_target
         Create target data
+
         Parameters
         ----------
         gt_boxes:
@@ -852,12 +912,14 @@ class ObjectDetector(keras.Model):
         """
         Calculate distance between anchors and ground truth.
         This is the value that reg layer should predict.
+
         Parameters
         ----------
         an: tf.Tensor
             Anchors
         gt: tf.Tensor
             Ground truth
+
         Return
         ------
         targets: tf.Tensor
@@ -888,12 +950,14 @@ class ObjectDetector(keras.Model):
     def bbox_delta_inv(self, boxes, deltas):
         """
         Inverse function of bbox_delta_transform
+
         Parameters
         ----------
         boxes: tf.Tensor
             Anchors (x1, y1, x2, y2)
         deltas:
             Output of reg layer (dx, dy, dw, dh)
+
         Return
         ------
         pred_boxes: tf.Tensor
